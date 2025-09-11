@@ -1,0 +1,176 @@
+#Install Minicube
+sudo apt-get update -y
+# Install curl, conntrack, and other dependencies
+sudo apt-get install -y curl wget apt-transport-https ca-certificates conntrack socat
+
+<optional if no docker>
+sudo apt-get install -y docker.io
+sudo systemctl enable docker --now
+
+--check
+docker ps
+
+#Install kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin/
+kubectl version --client
+
+#Install MiniKube
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+sudo install minikube-linux-amd64 /usr/local/bin/minikube
+
+#Start minikube
+minikube start --driver=docker
+
+kubectl get nodes
+
+minikube ip
+
+#create directory
+mkdir deployments-mc
+cd deployments-mc
+
+#create backends.yaml
+kubectl apply -f backends.yaml
+
+#create services.yaml
+kubectl apply -f services.yaml
+
+#create envoy-config.yaml
+kubectl apply -f envoy-config.yaml
+
+#create envoy-deployment.yaml
+kubectl apply -f envoy-deployment.yaml
+
+kubectl get nodes -o wide
+kubectl get svc
+kubectl get pods
+
+#If any changes
+controlplane:~/deployments-mc$ kubectl apply -f envoy-config.yaml
+configmap/envoy-config configured
+controlplane:~/deployments-mc$ kubectl rollout restart deployment envoy
+deployment.apps/envoy restarted
+
+#minikube ip
+ipaddress
+curl http://ipaddress:30080/httpbin/get
+curl http://ipaddress:30080/nginx/
+
+#kubectl port-forward deployment/envoy 9901:9901
+curl http://localhost:9901/clusters
+curl http://localhost:9901/listeners
+
+#check pods
+kubectl get pods -o wide
+
+#check services
+kubectl get svc
+
+#check logs
+kubectl logs -l app=envoy
+
+---------------------------------
+#Just change the config to use envoy-config3.yaml contents
+controlplane:~/deployments-mc$ kubectl apply -f envoy-config.yaml
+configmap/envoy-config configured
+controlplane:~/deployments-mc$ kubectl rollout restart deployment envoy
+deployment.apps/envoy restarted
+
+#Refer additionals folder
+1.envoy-config1.yaml that uses CORS, Gzip, and Router filters in order
+#Requests first pass through the CORS filter (adds cross-origin headers).
+#Then Gzip compresses responses.
+#Finally the Router filter sends the request upstream.
+
+2.envoy-config2.yaml to listen on the same port but with different behavior depending on protocol.
+#Chain 1: plain HTTP traffic.
+#Chain 2: HTTPS traffic with TLS.
+
+#If traffic comes in as plain HTTP → routed to httpbin.
+#If traffic comes in via TLS → routed to nginx.
+
+3.envoy-config3.yaml
+Access logging → stdout logs showing client IP, path, upstream cluster, response code.
+>Logs to stdout with timestamp, client IP, method, path, response code, upstream cluster, response duration (%RESPONSE_DURATION%).
+
+Latency tracking / HTTP stats → using Envoy’s built-in stats (Envoy admin will expose them).
+>Each log line includes %RESPONSE_DURATION%.
+Admin stats endpoint (9901) exposes detailed timing and cluster stats.
+
+Rate limiting filter → simple local rate limiting for demo purposes.
+>Allows 5 requests per second.
+Adds x-local-rate-limit: true header when rate limited.
+
+Multiple HTTP filters → router + gzip + CORS + rate limiting.
+>CORS → Gzip → Rate Limiter → Router
+
+Multiple filter chains → one for plain HTTP, one for HTTPS with TLS.
+Chain 1: plain HTTP → routes to httpbin/nginx
+#commented out as no tls certs as of now
+Chain 2: HTTPS with TLS → routes to httpbin/nginx
+
+#Testing when envoy-config3.yaml is deployed
+
+kubectl logs -f -l app=envoy
+#Route filters
+curl http://ipaddress:30080/httpbin/get
+curl http://ipaddress:30080/nginx/
+
+#to check logs in real time
+kubectl logs -l app=envoy -f
+
+#Test rate limiting:
+If limiter is configured to allow 5 requests per second:
+The first 5 requests → 200 OK
+The next 5 requests → 429 Too Many Requests
+
+Check response headers: x-local-rate-limit: true if configured.
+#Send more than 5 requests per second to trigger local rate limiting:
+controlplane:~/deployments-mc$ for i in {1..10}; do curl -s -o /dev/null -w "%{http_code}\n" http://172.30.1.2:30080/httpbin/get; 
+done
+
+#Some requests may return 429 if the limiter is triggered.
+404
+404
+404
+404
+404
+429
+429
+...
+
+#check cluster via Envoy admin interface
+kubectl port-forward deployment/envoy 9901:9901
+controlplane:~$ curl http://localhost:9901/listeners
+listener_http::0.0.0.0:10000
+
+controlplane:~$ curl http://localhost:9901/clusters
+httpbin_service::observability_name::httpbin_service
+httpbin_service::default_priority::max_connections::1024
+httpbin_service::default_priority::max_pending_requests::1024
+httpbin_service::default_priority::max_requests::1024
+httpbin_service::default_priority::max_retries::3
+httpbin_service::high_priority::max_connections::1024
+
+controlplane:~$ curl http://localhost:9901/stats
+
+#Additionally we can scale backends and Test load balancing:
+kubectl scale deployment httpbin --replicas=3
+kubectl scale deployment nginx --replicas=2
+
+for i in {1..10}; do curl -s http://<node-ip>:30080/httpbin/ip; done
+
+Now requests distributed among pod IPs.
+
+#CORS filters
+Useful for browser requests across origins.
+Test: From a browser or curl with Origin header:
+
+curl -i -H "Origin: http://example.com" http://<node-ip>:30080/httpbin/get
+#Look for Access-Control-Allow-Origin: * or the origin you set.
+
+#Failure handling
+kubectl scale deployment httpbin --replicas=0
+curl http://<node-ip>:30080/httpbin/get

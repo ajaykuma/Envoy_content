@@ -1,0 +1,38 @@
+#If working on Envoy based deployments on own machine or AWS machine
+In browser : use the right node_ip
+
+http://172.30.1.2:30080/mediawiki/
+
+#This loads the MediaWiki installer (config/index.php).
+
+#Database configuration
+
+During setup, provide database details. Use the MySQL service deployed:
+
+Database host → mediawiki-mysql (the service name in Kubernetes)
+Database name → mediawiki (from MYSQL_DATABASE)
+Database user → root
+Database password → rootpassword
+
+#Create admin account
+
+The setup wizard will ask to create an administrator username and password.
+Save this, which will be used to login
+
+#Get the LocalSettings.php file
+
+At the end of setup, MediaWiki will generate a LocalSettings.php file.
+Normally, it asks to download it.
+
+In Kubernetes, we need to mount it into our MediaWiki container, otherwise our settings won’t persist.
+#copy the file in running pod
+kubectl cp LocalSettings.php <mediawiki-pod-name>:/var/www/html/LocalSettings.php
+
+#
+Log in with admin user.
+Use the “Create” tab to make a new page, e.g. TestPage.
+Add some text and save it.
+
+#Verify
+curl http://<node-ip>:30080/mediawiki/index.php?title=TestPage
+

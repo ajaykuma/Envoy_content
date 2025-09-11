@@ -1,0 +1,194 @@
+mkdir deployments
+cd deployments
+
+##Deploying services, backends and Envoy
+controlplane:~$ kubectl apply -f envoy-config.yaml
+controlplane:~$ kubectl apply -f envoy-deployment.yaml
+controlplane:~$ kubectl apply -f services.yaml
+controlplane:~$ kubectl apply -f backends.yaml
+
+##checks
+controlplane:~/deployments$ kubectl get svc
+controlplane:~/deployments$ kubectl get pods
+controlplane:~/deployments$ kubectl get nodes -o wide
+controlplane:~$ kubectl get pods -l app=envoy
+
+##Testing
+controlplane:~/deployments$ curl http://172.30.1.2:30080/httpbin/get
+
+##Test nginx route:
+#Should return the nginx default HTML page.
+controlplane:~/deployments$ curl http://172.30.1.2:30080/nginx
+
+##Test httpbin endpoints:
+curl http://172.30.1.2:30080/httpbin/ip
+curl http://172.30.1.2:30080/httpbin/headers
+curl http://172.30.1.2:30080/httpbin/status/418
+
+##Envoy Admin Interface
+#Check config and stats:(to confirm Envoy actually knows about the clusters & routes)
+# Verify listeners
+curl http://172.30.1.2:9901/listeners
+
+# Check clusters (httpbin and nginx should be "HEALTHY")
+curl http://172.30.1.2:9901/clusters
+
+# Envoy server info
+curl http://172.30.1.2:9901/server_info
+
+# Routing configuration dump
+curl http://172.30.1.2:9901/config_dump
+
+#If issues: Then relook into services.yaml
+#we can do port forwarding
+controlplane:~/deployments$ kubectl port-forward deployment/envoy 9901:9901
+Forwarding from 127.0.0.1:9901 -> 9901
+Forwarding from [::1]:9901 -> 9901
+Handling connection for 9901
+
+#from another terminal
+curl http://localhost:9901/listeners
+curl http://localhost:9901/clusters
+curl http://localhost:9901/server_info
+curl http://localhost:9901/config_dump
+
+#Note**
+#Port-forwarding (kubectl port-forward): a way to temporarily open a tunnel from 
+#our local machine → into a pod (or service) for debugging. 
+#It’s useful for checking Envoy’s admin interface (9901).
+
+#our actual app traffic (httpbin, nginx) goes through Envoy’s NodePort (30080).
+
+##Load Balancing Test
+#Note** Before testing make changes to allow logging
+##Add Access Logs in Envoy Config
+#edit envoy-config.yaml
+
+#apply
+kubectl apply -f envoy-config.yaml
+
+#restart
+kubectl delete pod -l app=envoy   # restart Envoy to reload config
+
+#send requests
+for i in {1..5}; do curl -s http://172.30.1.2:30080/httpbin/ip > /dev/null; done
+
+#check logs
+kubectl logs -l app=envoy
+
+#If you scale httpbin or nginx to multiple replicas, Envoy should round-robin requests:
+
+controlplane:~/deployments$ kubectl scale deployment httpbin --replicas=3
+deployment.apps/httpbin scaled
+
+controlplane:~/deployments$ kubectl scale deployment nginx --replicas=3
+deployment.apps/nginx scaled
+
+controlplane:~/deployments$ kubectl get pods
+NAME                       READY   STATUS              RESTARTS   AGE
+envoy-8f758f8b5-zck8h      1/1     Running             0          15m
+httpbin-56cc78c99f-pq6vv   1/1     Running             0          15m
+httpbin-56cc78c99f-wqq89   1/1     Running             0          22s
+httpbin-56cc78c99f-xs4t6   1/1     Running             0          22s
+nginx-86c57bc6b8-9hxv2     1/1     Running             0          15m
+nginx-86c57bc6b8-j6njf     0/1     ContainerCreating   0          13s
+nginx-86c57bc6b8-l7m64     1/1     Running             0          13s
+
+#[Optional
+Scale httpbin to 3 replicas even on a single-node cluster
+kubectl scale deployment httpbin --replicas=3
+kubectl get pods -l app=httpbin -o wide
+
+#we can see
+different pods with different IPs inside the cluster
+
+Nte**Envoy’s cluster config (httpbin_service) points to the service name (httpbin), not a specific pod.
+Kubernetes Service load-balances across all pod IPs behind that service.
+]
+
+#Then send repeated requests:
+#we can see different pod IPs in the response over multiple requests.
+for i in {1..5}; do curl -s http://172.30.1.2:30080/httpbin/ip; done
+
+controlplane:~/deployments$ for i in {1..5}; do curl -s http://172.30.1.2:30080/httpbin/ip; done
+{
+  "origin": "192.168.1.4"
+}
+{
+  "origin": "192.168.1.4"
+}
+{
+  "origin": "192.168.1.4"
+}
+{
+  "origin": "192.168.1.4"
+}
+{
+  "origin": "192.168.1.4"
+}
+
+#httpbin /ip returns the client IP address, i.e. the IP of the machine (or Envoy) making the request.
+
+In our setup:
+
+We curl from your controlplane node : request goes to Envoy : Envoy calls httpbin.
+From httpbin’s perspective, all requests come from the same Envoy pod.
+That’s why we always see the same "origin": "192.168.1.4".
+
+#Lets look in logs
+controlplane:~/deployments$ kubectl logs -f -l app=envoy
+--upstream_host shows the pod IP — this confirms load balancing across replicas.
+
+##add latency (request duration) to the Envoy access logs.
+#Envoy exposes this as %DURATION% (milliseconds from request start to finish).
+#Apply and restart
+kubectl apply -f envoy-config.yaml
+kubectl delete pod -l app=envoy
+
+#Generate traffic
+for i in {1..5}; do curl -s http://172.30.1.2:30080/httpbin/delay/1 > /dev/null; done
+
+--(/httpbin/delay/1 forces a 1-second response)
+
+##Check Envoy Logs
+#confirm traffic is flowing correctly
+kubectl logs -l app=envoy
+
+##Failure Handling
+kubectl get pods -l app=httpbin
+kubectl delete pod <httpbin-pod-name>
+#or > kubectl delete pod -l app=httpbin --force --grace-period=0
+
+controlplane:~/deployments$ kubectl get pods -l app=httpbin
+controlplane:~/deployments$ for i in {1..5}; do curl -s http://172.30.1.2:30080/httpbin/delay/1 > /dev/null; done
+controlplane:~/deployments$ for i in {1..5}; do curl -s http://172.30.1.2:30080/httpbin/ip; done
+
+
+#Envoy should route to remaining replicas automatically (if scaled).
+#If all pods are gone, /httpbin/* should fail with 503 from Envoy.
+--no 50x errors
+
+#Kill multiple pods / simulate cascading failure
+controlplane:~/deployments$ kubectl scale deployment httpbin --replicas=0
+deployment.apps/httpbin scaled
+controlplane:~/deployments$ kubectl get pods -l app=httpbin
+No resources found in default namespace.
+
+controlplane:~/deployments$ for i in {1..5}; do curl -s http://172.30.1.2:30080/httpbin/ip; done
+--shows errors
+
+
+# Scale httpbin back to 1 replica
+kubectl scale deployment httpbin --replicas=1
+
+# Scale nginx back to 1 replica
+kubectl scale deployment nginx --replicas=1
+
+controlplane:~/deployments$ kubectl get pods
+NAME                       READY   STATUS    RESTARTS   AGE
+envoy-8f758f8b5-4rj2x      1/1     Running   0          14m
+httpbin-56cc78c99f-zzfmk   1/1     Running   0          10s
+nginx-86c57bc6b8-9zc5c     1/1     Running   0          2s
+
+
+
