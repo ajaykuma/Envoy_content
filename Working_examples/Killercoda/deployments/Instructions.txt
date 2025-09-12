@@ -81,63 +81,127 @@ kubectl logs -l app=envoy
 controlplane:~/deployments$ kubectl scale deployment httpbin --replicas=3
 deployment.apps/httpbin scaled
 
-controlplane:~/deployments$ kubectl scale deployment nginx --replicas=3
-deployment.apps/nginx scaled
+controlplane:~/deployments$ kubectl get pods -o wide
+NAME                       READY   STATUS    RESTARTS   AGE     IP            NODE           NOMINATED NODE   READINESS GATES
+envoy-8f758f8b5-zgl56      1/1     Running   0          9m22s   192.168.1.8   node01         <none>           <none>
+httpbin-56cc78c99f-l62jr   1/1     Running   0          72s     192.168.0.4   controlplane   <none>           <none>
+httpbin-56cc78c99f-s2hzf   1/1     Running   0          13m     192.168.1.5   node01         <none>           <none>
+httpbin-56cc78c99f-tjhxj   1/1     Running   0          72s     192.168.1.9   node01         <none>           <none>
+nginx-86c57bc6b8-mh8vw     1/1     Running   0          13m     192.168.1.6   node01         <none>           <none>
 
-controlplane:~/deployments$ kubectl get pods
-NAME                       READY   STATUS              RESTARTS   AGE
-envoy-8f758f8b5-zck8h      1/1     Running             0          15m
-httpbin-56cc78c99f-pq6vv   1/1     Running             0          15m
-httpbin-56cc78c99f-wqq89   1/1     Running             0          22s
-httpbin-56cc78c99f-xs4t6   1/1     Running             0          22s
-nginx-86c57bc6b8-9hxv2     1/1     Running             0          15m
-nginx-86c57bc6b8-j6njf     0/1     ContainerCreating   0          13s
-nginx-86c57bc6b8-l7m64     1/1     Running             0          13s
+#controlplane:~/deployments$ kubectl scale deployment nginx --replicas=3
+#deployment.apps/nginx scaled
 
 #[Optional
 Scale httpbin to 3 replicas even on a single-node cluster
 kubectl scale deployment httpbin --replicas=3
 kubectl get pods -l app=httpbin -o wide
 
-#we can see
-different pods with different IPs inside the cluster
+#we can see different pods with different IPs inside the cluster
 
 Nte**Envoy’s cluster config (httpbin_service) points to the service name (httpbin), not a specific pod.
 Kubernetes Service load-balances across all pod IPs behind that service.
 ]
 
 #Then send repeated requests:
-#we can see different pod IPs in the response over multiple requests.
-for i in {1..5}; do curl -s http://172.30.1.2:30080/httpbin/ip; done
-
+#we should see different pod IPs in the response over multiple requests.
 controlplane:~/deployments$ for i in {1..5}; do curl -s http://172.30.1.2:30080/httpbin/ip; done
 {
-  "origin": "192.168.1.4"
+  "origin": "192.168.1.8"
 }
 {
-  "origin": "192.168.1.4"
+  "origin": "192.168.1.8"
 }
 {
-  "origin": "192.168.1.4"
+  "origin": "192.168.1.8"
 }
 {
-  "origin": "192.168.1.4"
+  "origin": "192.168.1.8"
 }
 {
-  "origin": "192.168.1.4"
+  "origin": "192.168.1.8"
 }
+controlplane:~/deployments$ kubectl logs -l app=envoy
+[2025-09-12T04:42:05.012Z] "GET /httpbin/ip" 200 cluster=httpbin_service upstream_host=10.99.113.121:80 user-agent="curl/8.5.0"
+[2025-09-12T04:42:05.025Z] "GET /httpbin/ip" 200 cluster=httpbin_service upstream_host=10.99.113.121:80 user-agent="curl/8.5.0"
+[2025-09-12T04:42:05.036Z] "GET /httpbin/ip" 200 cluster=httpbin_service upstream_host=10.99.113.121:80 user-agent="curl/8.5.0"
+[2025-09-12T04:42:05.048Z] "GET /httpbin/ip" 200 cluster=httpbin_service upstream_host=10.99.113.121:80 user-agent="curl/8.5.0"
+[2025-09-12 04:47:22.017][1][info][main] [source/server/drain_manager_impl.cc:208] shutting down parent after drain
+[2025-09-12T04:49:00.492Z] "GET /httpbin/ip" 200 cluster=httpbin_service upstream_host=10.99.113.121:80 user-agent="curl/8.5.0"
+[2025-09-12T04:49:00.505Z] "GET /httpbin/ip" 200 cluster=httpbin_service upstream_host=10.99.113.121:80 user-agent="curl/8.5.0"
+[2025-09-12T04:49:00.516Z] "GET /httpbin/ip" 200 cluster=httpbin_service upstream_host=10.99.113.121:80 user-agent="curl/8.5.0"
+[2025-09-12T04:49:00.527Z] "GET /httpbin/ip" 200 cluster=httpbin_service upstream_host=10.99.113.121:80 user-agent="curl/8.5.0"
+[2025-09-12T04:49:00.539Z] "GET /httpbin/ip" 200 cluster=httpbin_service upstream_host=10.99.113.121:80 user-agent="curl/8.5.0"
 
-#httpbin /ip returns the client IP address, i.e. the IP of the machine (or Envoy) making the request.
-
-In our setup:
-
+#So what is happening
 We curl from your controlplane node : request goes to Envoy : Envoy calls httpbin.
+You’re hitting NodeIP:30080 → that goes into the envoy NodePort Service.
+K8s routes that to the envoy Pod (container listening on port 10000).
+Envoy’s config has a cluster called httpbin_service, 
+which points to the httpbin ClusterIP service (10.99.113.121:80).
+So kube-proxy (iptables/ebpf) is the one load balancing traffic across the Pods.
+
 From httpbin’s perspective, all requests come from the same Envoy pod.
-That’s why we always see the same "origin": "192.168.1.4".
+That’s why we always see the same "origin": "192.168.1.8".
 
 #Lets look in logs
 controlplane:~/deployments$ kubectl logs -f -l app=envoy
---upstream_host shows the pod IP — this confirms load balancing across replicas.
+--upstream_host shows (should show) the pod IP — this confirms load balancing across replicas.
+
+#Using headless service
+vi httpbin-hlsvc.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpbin-headless
+spec:
+  clusterIP: None     # <- makes it headless
+  selector:
+    app: httpbin      # must match labels of your Deployment pods
+  ports:
+  - port: 80
+    targetPort: 80
+
+kubectl apply -f httpbin-hlsvc.yaml
+
+#update envoy-config.yaml
+      clusters:
+      - name: httpbin_service
+        connect_timeout: 0.25s
+        type: STRICT_DNS
+        lb_policy: ROUND_ROBIN
+        dns_refresh_rate: 2s
+        load_assignment:
+          cluster_name: httpbin_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: httpbin-headless.default.svc.cluster.local
+                    port_value: 80
+
+kubectl apply -f envoy-config.yaml
+kubectl rollout restart deployment envoy
+
+#check
+controlplane:~/deployments$ kubectl run -it dnsutils --image=busybox:1.28 --restart=Never -- sh
+If you don't see a command prompt, try pressing enter.
+/ # nslookup httpbin-headless
+Server:    10.96.0.10
+Address 1: 10.96.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      httpbin-headless
+Address 1: 192.168.1.9
+Address 2: 192.168.0.4
+Address 3: 192.168.1.5
+
+controlplane:~/deployments$ for i in {1..5}; do curl -s http://172.30.1.2:30080/httpbin/ip; done
+controlplane:~/deployments$ kubectl logs -l app=envoy
+
+<optional> kubectl delete svc httpbin-headless
+<optional> reconfigure to use httpbin
 
 ##add latency (request duration) to the Envoy access logs.
 #Envoy exposes this as %DURATION% (milliseconds from request start to finish).

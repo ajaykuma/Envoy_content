@@ -56,7 +56,7 @@ ubuntu@ip-172-31-46-4:~$ curl -LO https://dl.k8s.io/release/v1.30.4/bin/linux/am
 100   138  100   138    0     0    742      0 --:--:-- --:--:-- --:--:--   745
 100 49.0M  100 49.0M    0     0  64.9M      0 --:--:-- --:--:-- --:--:-- 64.9M
 
-ubuntu@ip-172-31-46-4:~$ chmod +x kubectl
+chmod +x kubectl
 sudo mv kubectl /usr/local/bin/
 kubectl version --client
 Client Version: v1.30.4
@@ -359,102 +359,5 @@ curl http://127.0.0.1:9901/routes
 
 Note**
 Thus config allows Envoy to proxy multiple backends (httpbin and nginx) with static routing.
-
-##Dynamic configuration. This involves using xDS APIs so Envoy can fetch configuration from a control plane 
-(like envoy-control or Istio, or a simple local management server).
-
---stop Envoy
-docker stop envoy
-
-vi deployments/envoy-dynamic.yaml
-#This tells Envoy to connect to an xDS server on localhost:50051 to fetch its Listener (LDS) and Cluster (CDS) config dynamically.
----
-static_resources:
-  clusters:
-    - name: xds_cluster
-      connect_timeout: 1s
-      type: STRICT_DNS
-      http2_protocol_options: {}
-      lb_policy: ROUND_ROBIN
-      load_assignment:
-        cluster_name: xds_cluster
-        endpoints:
-          - lb_endpoints:
-              - endpoint:
-                  address:
-                    socket_address:
-                      address: xds-server  # must match container name
-                      port_value: 50051
-
-dynamic_resources:
-  cds_config:
-    api_config_source:
-      api_type: GRPC
-      grpc_services:
-        - envoy_grpc:
-            cluster_name: xds_cluster
-  lds_config:
-    api_config_source:
-      api_type: GRPC
-      grpc_services:
-        - envoy_grpc:
-            cluster_name: xds_cluster
-
-
-----
-
---start a simple xDS control plane
-#docker run -d --name envoy-control -p 50051:50051 envoyproxy/go-control-plane
-docker run -d --name xds-server --network envoy-net -p 50051:50051 envoyproxy/go-control-plane:v0.12.0
-
---If error /permission denied
-git clone https://github.com/envoyproxy/go-control-plane.git
-cd go-control-plane
-wget https://go.dev/dl/go1.23.4.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz
-echo "export PATH=\$PATH:/usr/local/go/bin" >> ~/.bashrc
-source ~/.bashrc
-go version
-cd examples/dyplomat
-
-vi dockerfile
-# Build stage
-FROM golang:1.23 as builder
-WORKDIR /app
-COPY . .
-RUN go build -o xds-server .
-
-# Final image
-FROM ubuntu:22.04
-WORKDIR /app
-COPY --from=builder /app/xds-server .
-EXPOSE 50051
-CMD ["./xds-server"]
-
---build image
-docker build -t xds-server-image .
-
---run
-docker run -d --name xds-server --network envoy-net xds-server-image
-
---Envoy will reach this via xds-server:50051
-
---start Envoy with dynamic config on envoy-net
-docker run -d --name envoy --network envoy-net \
-  -p 10000:10000 -p 9901:9901 \
-  -v "$(pwd)/deployments/envoy-dynamic.yaml":/etc/envoy/envoy.yaml:ro \
-  envoyproxy/envoy:v1.31.2
-
-
-
-
-
-
-
-
-
-
-
-
 
 
