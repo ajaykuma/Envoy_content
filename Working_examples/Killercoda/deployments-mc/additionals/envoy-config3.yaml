@@ -33,9 +33,13 @@ data:
                   domains: ["*"]
                   routes:
                   - match: { prefix: "/httpbin" }
-                    route: { cluster: httpbin_service }
+                    route: 
+                      cluster: httpbin_service
+                      prefix_rewrite: "/"
                   - match: { prefix: "/nginx" }
-                    route: { cluster: nginx_service }
+                    route: 
+                      cluster: nginx_service
+                      prefix_rewrite: "/"
               http_filters:
               - name: envoy.filters.http.cors
                 typed_config:
@@ -65,6 +69,15 @@ data:
               - name: envoy.filters.http.router
                 typed_config:
                   "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+              access_log:
+              - name: envoy.access_loggers.stdout
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                  log_format:
+                    text_format: |
+                      [%START_TIME%] "%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%" 
+                      %RESPONSE_CODE% cluster=%UPSTREAM_CLUSTER% upstream_host=%UPSTREAM_HOST% 
+                      duration=%DURATION%ms user-agent="%REQ(USER-AGENT)%"
 
       # # --- HTTPS Chain ---
       # - name: listener_https
