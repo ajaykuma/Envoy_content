@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment3
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: deployment3
+  template:
+    metadata:
+      labels:
+        app: deployment3
+    spec:
+      containers:
+      - name: server1
+        image: python:3.11-slim
+        command: ["python", "-m", "http.server", "5003"]
+        ports:
+        - containerPort: 5003
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service3
+spec:
+  selector:
+    app: deployment3
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 5003
