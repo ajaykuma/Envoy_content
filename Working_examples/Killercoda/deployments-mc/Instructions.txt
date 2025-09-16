@@ -31,26 +31,28 @@ minikube ip
 mkdir deployments-mc
 cd deployments-mc
 
+kubectl create namespace aj-ns
+
 #create backends.yaml
-kubectl apply -f backends.yaml
+kubectl apply -f backends.yaml -n aj-ns
 
 #create services.yaml
-kubectl apply -f services.yaml
+kubectl apply -f services.yaml -n aj-ns
 
 #create envoy-config.yaml
-kubectl apply -f envoy-config.yaml
+kubectl apply -f envoy-config.yaml -n aj-ns
 
 #create envoy-deployment.yaml
-kubectl apply -f envoy-deployment.yaml
+kubectl apply -f envoy-deployment.yaml -n aj-ns
 
-kubectl get nodes -o wide
-kubectl get svc
-kubectl get pods
+kubectl get nodes -o wide -n aj-ns
+kubectl get svc -n aj-ns
+kubectl get pods -n aj-ns
 
 #If any changes
-controlplane:~/deployments-mc$ kubectl apply -f envoy-config.yaml
+controlplane:~/deployments-mc$ kubectl apply -f envoy-config.yaml -n aj-ns
 configmap/envoy-config configured
-controlplane:~/deployments-mc$ kubectl rollout restart deployment envoy
+controlplane:~/deployments-mc$ kubectl rollout restart deployment envoy -n aj-ns
 deployment.apps/envoy restarted
 
 #minikube ip
@@ -63,22 +65,16 @@ curl http://localhost:9901/clusters
 curl http://localhost:9901/listeners
 
 #check pods
-kubectl get pods -o wide
+kubectl get pods -o wide -n aj-ns
 
 #check services
-kubectl get svc
+kubectl get svc -n aj-ns
 
 #check logs
-kubectl logs -l app=envoy
+kubectl logs -l app=envoy -n aj-ns
 
 ---------------------------------
-#Just change the config to use envoy-config3.yaml contents
-controlplane:~/deployments-mc$ kubectl apply -f envoy-config.yaml
-configmap/envoy-config configured
-controlplane:~/deployments-mc$ kubectl rollout restart deployment envoy
-deployment.apps/envoy restarted
-
-#Refer additionals folder
+#Refer 'additionals' folder
 1.envoy-config1.yaml that uses CORS, Gzip, and Router filters in order
 #Requests first pass through the CORS filter (adds cross-origin headers).
 #Then Gzip compresses responses.
@@ -111,38 +107,127 @@ Chain 1: plain HTTP → routes to httpbin/nginx
 #commented out as no tls certs as of now
 Chain 2: HTTPS with TLS → routes to httpbin/nginx
 
-#Testing when envoy-config3.yaml is deployed
+##Just change the config to use envoy-config3.yaml contents
 
-kubectl logs -f -l app=envoy
+#kubectl apply -f backends.yaml -n aj-ns
+#kubectl apply -f services.yaml -n aj-ns
+kubectl apply -f additionals/envoy-config3.yaml -n aj-ns
+#kubectl apply -f envoy-deployment.yaml -n aj-ns
+kubectl rollout restart deployment envoy -n aj-ns
+
+kubectl get deployments -n aj-ns
+
+#check pods
+kubectl get pods -o wide -n aj-ns
+
+#check services
+kubectl get svc -n aj-ns
+
+#check logs
+kubectl logs -f -l app=envoy -n aj-ns
+
+#Testing when envoy-config3.yaml is deployed
+kubectl get nodes -o wide -n aj-ns
+--get the node ipaddress
+
 #Route filters
-curl http://ipaddress:30080/httpbin/get
-curl http://ipaddress:30080/nginx/
+curl http://ipaddress:30081/httpbin/get
+curl http://ipaddress:30081/nginx/
 
 #to check logs in real time
 kubectl logs -l app=envoy -f
 
 #Test rate limiting:
+---as configured in config map---
+           - name: envoy.filters.http.local_ratelimit
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                  stat_prefix: http_local_rate_limiter
+                  token_bucket:
+                    max_tokens: 5
+                    tokens_per_fill: 1
+                    fill_interval: 1s
+                  filter_enabled:
+                    runtime_key: local_rate_limit_enabled
+                    default_value:
+                      numerator: 100
+                      denominator: HUNDRED
+                  filter_enforced:
+                    runtime_key: local_rate_limit_enforced
+                    default_value:
+                      numerator: 100
+                      denominator: HUNDRED
+                  response_headers_to_add:
+                  - header:
+                      key: "x-local-rate-limit"
+                      value: "true"
+
+Explaination:
+Filter:
+- name: envoy.filters.http.local_ratelimit
+Activates Envoy’s built-in local rate limiting filter.
+
+Stat prefix:
+stat_prefix: http_local_rate_limiter
+Prefix for metrics emitted by this filter (useful for observability).
+
+Token bucket algorithm:
+token_bucket:
+  max_tokens: 5
+  tokens_per_fill: 1
+  fill_interval: 1s
+
+max_tokens: 5 → bucket can hold up to 5 requests at a time.
+tokens_per_fill: 1 → 1 request "token" is added every second.
+fill_interval: 1s → refill rate is every second.
+This effectively allows up to 5 immediate requests at once, then sustains 1 request per second thereafter.
+
+Filter enabled / enforced:
+filter_enabled:
+                    runtime_key: local_rate_limit_enabled
+                    default_value:
+                      numerator: 100
+                      denominator: HUNDRED
+                  filter_enforced:
+                    runtime_key: local_rate_limit_enforced
+                    default_value:
+                      numerator: 100
+                      denominator: HUNDRED
+Controls whether the filter is active and enforced.
+Runtime keys (local_rate_limit_enabled and local_rate_limit_enforced) allow dynamic toggling without redeploying Envoy.
+Default is 100% (always on).
+
+Custom response header:
+Adds a header in responses that were rate-limited → useful for clients/logging/monitoring.
+response_headers_to_add:
+  - header:
+      key: "x-local-rate-limit"
+      value: "true"
+----------------------------
+#More details below (PPT)
+--------------------------
 If limiter is configured to allow 5 requests per second:
 The first 5 requests → 200 OK
 The next 5 requests → 429 Too Many Requests
 
 Check response headers: x-local-rate-limit: true if configured.
 #Send more than 5 requests per second to trigger local rate limiting:
-controlplane:~/deployments-mc$ for i in {1..10}; do curl -s -o /dev/null -w "%{http_code}\n" http://172.30.1.2:30080/httpbin/get; 
-done
 
 #Some requests may return 429 if the limiter is triggered.
-404
-404
-404
-404
-404
+for i in {1..10}; do curl -s -o /dev/null -w "%{http_code}\n" http://192.168.49.2:30081/httpbin/get;done
+200
+200
+200
+200
+200
 429
 429
-...
+429
+429
+429
 
 #check cluster via Envoy admin interface
-kubectl port-forward deployment/envoy 9901:9901
+kubectl port-forward deployment/envoy 9901:9901 -n aj-ns
 controlplane:~$ curl http://localhost:9901/listeners
 listener_http::0.0.0.0:10000
 
@@ -154,15 +239,9 @@ httpbin_service::default_priority::max_requests::1024
 httpbin_service::default_priority::max_retries::3
 httpbin_service::high_priority::max_connections::1024
 
+ubuntu@ip-172-31-46-4:~$ curl http://localhost:9901/clusters | grep healthy
+
 controlplane:~$ curl http://localhost:9901/stats
-
-#Additionally we can scale backends and Test load balancing:
-kubectl scale deployment httpbin --replicas=3
-kubectl scale deployment nginx --replicas=2
-
-for i in {1..10}; do curl -s http://<node-ip>:30080/httpbin/ip; done
-
-Now requests distributed among pod IPs.
 
 #CORS filters
 Useful for browser requests across origins.
@@ -174,3 +253,90 @@ curl -i -H "Origin: http://example.com" http://<node-ip>:30080/httpbin/get
 #Failure handling
 kubectl scale deployment httpbin --replicas=0
 curl http://<node-ip>:30080/httpbin/get
+
+#For Global rate limiting
+Removed envoy.filters.http.local_ratelimit.
+Add envoy.filters.http.ratelimit filter (global).
+Add ratelimit_service cluster for Envoy to talk to the external RLS.
+Add per-route rate limiting configuration (typed_per_filter_config), so rules can differ per path (/httpbin, /nginx, etc.).
+
+Refer: additionals/envoy-config4.yaml
+
+#kubectl apply -f backends.yaml -n aj-ns
+#kubectl apply -f services.yaml -n aj-ns
+kubectl apply -f additionals/envoy-config4.yaml -n aj-ns
+#kubectl apply -f envoy-deployment.yaml -n aj-ns
+kubectl rollout restart deployment envoy -n aj-ns
+
+#deploy a rate limit service
+
+#The most common RLS is the envoyproxy/ratelimit container. 
+It’s a gRPC server that Envoy queries for decisions.
+
+#Envoy’s ratelimit service needs Redis (or another store) to store counters. 
+Run a simple Redis deployment:
+
+Refer: redis-deployment.yaml
+kubectl apply -f redis.yaml
+kubectl get pods -l app=redis
+
+-------output--------
+ubuntu@ip-172-31-46-4:~/deployments_aj$ kubectl apply -f redis-deployment.yaml -n aj-ns
+deployment.apps/redis created
+service/redis created
+ubuntu@ip-172-31-46-4:~/deployments_aj$ kubectl get pods -l app=redis -n aj-ns
+NAME                     READY   STATUS    RESTARTS   AGE
+redis-74f5f97d45-qzqjn   1/1     Running   0          16s
+
+------output---------
+
+Refer: rlser-deployment.yaml
+
+Refer: rlser-config.yaml
+#defines your quotas
+
+kubectl apply -f rlser-config.yaml -n aj-ns
+kubectl apply -f rlser-deployment.yaml -n aj-ns
+#kubectl rollout restart deployment ratelimit -n aj-ns
+
+kubectl get pods -o wide -n aj-ns
+
+kubectl logs -n aj-ns ratelimit-575fbc9f69-9dbmq | grep 8081
+level=warning msg="Listening for gRPC on '0.0.0.0:8081'"
+
+kubectl port-forward deployment/envoy 9901:9901 -n aj-ns
+--check if Envoy can see the ratelimit cluster
+kubectl exec -it <envoy-pod> -- curl localhost:9901/clusters | grep ratelimit
+
+or Just
+curl localhost:9901/clusters | grep ratelimit
+
+--send requests from Envoy
+--Send 5 requests to httpbin (limit: 2/sec)
+for i in {1..10}; do curl -i http://192.168.49.2:30081/httpbin/get;done
+
+First 2 requests → 200 OK
+Remaining requests within the same second → 429 Too Many Requests
+
+# Limit is 5 per minute
+for i in {1..10}; do curl -i http://192.168.49.2:30081/nginx;done
+
+First 5 requests → 200 OK
+Requests 6–10 → 429 Too Many Requests
+
+#Look into logs
+Envoy Logs: Show rejected requests with 429.
+RLS Logs (ratelimit pod): Show descriptors being matched, like:
+
+ratelimit_1  | DEBUG: got request: domain=envoy-ratelimit, descriptors=[path:/httpbin]
+ratelimit_1  | DEBUG: responding with OVER_LIMIT
+
+In global rate limiting setup:
+Envoy proxies ask the central RLS for quota decisions.
+RLS enforces limits consistently across all Envoys in your cluster.
+
+#Monitor redis counters
+
+
+
+
