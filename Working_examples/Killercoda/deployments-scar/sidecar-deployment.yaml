@@ -24,6 +24,9 @@ spec:
         image: nginx
         ports:
         - containerPort: 8080
+        volumeMounts:
+        - name: nginx-conf
+          mountPath: /etc/nginx/conf.d
 
       # --- Envoy sidecar ---
       - name: envoy
@@ -39,3 +42,19 @@ spec:
       - name: envoy-config
         configMap:
           name: envoy-config
+      - name: nginx-conf
+        configMap:
+          name: nginx-config
+---
+apiVersion: v1
+kind: service
+metadata: 
+  name: nginx_service
+spec:
+  type: ClusterIP
+  selector:
+    app: exampleapp
+  ports:
+  - name: http
+    port: 80
+    targetport: 8080

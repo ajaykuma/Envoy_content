@@ -1,0 +1,13 @@
+# envoy-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+data:
+  default.conf: |
+    server {
+      listen 8080;
+      location / {
+           proxy_pass http://127.0.0.1:10000;
+      }
+    }
