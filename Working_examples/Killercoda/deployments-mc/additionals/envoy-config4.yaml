@@ -36,9 +36,11 @@ data:
                         "@type": type.googleapis.com/envoy.extensions.filters.http.ratelimit.v3.RateLimitPerRoute
                         rate_limits:
                         - actions:
-                          - request_headers:
-                              header_name: ":path"
-                              descriptor_key: "path"
+                          # - request_headers:
+                          #     header_name: ":path"
+                          #     descriptor_key: "path"
+                          - generic_key:
+                              descriptor_value: "httpbin"
 
                   - match: { prefix: "/nginx" }
                     route:
@@ -49,9 +51,11 @@ data:
                         "@type": type.googleapis.com/envoy.extensions.filters.http.ratelimit.v3.RateLimitPerRoute
                         rate_limits:
                         - actions:
-                          - request_headers:
-                              header_name: ":path"
-                              descriptor_key: "path"
+                          #- request_headers:
+                          #    header_name: ":path"
+                          #    descriptor_key: "path"
+                          - generic_key:
+                              descriptor_value: "nginx"
 
               http_filters:
               - name: envoy.filters.http.cors
@@ -62,10 +66,12 @@ data:
                   "@type": type.googleapis.com/envoy.extensions.filters.http.ratelimit.v3.RateLimit
                   domain: envoy-ratelimit
                   timeout: 0.25s
+                  failure_mode_deny: true
                   rate_limit_service:
                     grpc_service:
                       envoy_grpc:
                         cluster_name: ratelimit_service
+                      #transport_api_version: V3
                       timeout: 0.25s
                   enable_x_ratelimit_headers: DRAFT_VERSION_03
               - name: envoy.filters.http.router

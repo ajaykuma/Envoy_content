@@ -304,6 +304,21 @@ kubectl get pods -o wide -n aj-ns
 kubectl logs -n aj-ns ratelimit-575fbc9f69-9dbmq | grep 8081
 level=warning msg="Listening for gRPC on '0.0.0.0:8081'"
 
+kubectl run -it tmp --rm --image=busybox:1.36 --restart=Never -- sh
+# then inside:
+nslookup ratelimit
+
+#TCP connectivity from a pod to the Ratelimit service
+nc -zv ratelimit 8081
+#Envoy expects (cluster_name: ratelimit_service → resolves to service ratelimit:8081)
+<exit>
+
+kubectl logs -f deploy/ratelimit
+
+--use debug pod from ratelimit
+kubectl run -it redis-test --rm --image=redis:6 --restart=Never -- bash
+redis-cli -h redis ping
+
 kubectl port-forward deployment/envoy 9901:9901 -n aj-ns
 --check if Envoy can see the ratelimit cluster
 kubectl exec -it <envoy-pod> -- curl localhost:9901/clusters | grep ratelimit
@@ -313,6 +328,7 @@ curl localhost:9901/clusters | grep ratelimit
 
 --send requests from Envoy
 --Send 5 requests to httpbin (limit: 2/sec)
+for i in {1..5}; do curl -s -o /dev/null -w "%{http_code}\n" http://172.30.1.2:30081/httpbin/get;done
 for i in {1..10}; do curl -i http://192.168.49.2:30081/httpbin/get;done
 
 First 2 requests → 200 OK

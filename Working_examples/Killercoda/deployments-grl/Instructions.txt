@@ -1,0 +1,22 @@
+kubectl apply -f final-deployment.yaml
+kubectl get pods -w
+
+chmod +x test_rate_limiting.sh
+./test_rate_limiting.sh
+
+Testing
+--check Envoy logs
+kubectl logs -l app=envoy -f
+
+--check rate limit service logs
+kubectl logs -l app=ratelimit -f
+
+--check redis connectivity
+kubectl exec -it deployment/ratelimit -- redis-cli -h redis ping
+
+--envoy admin 
+kubectl port-forward svc/envoy 9901:9901
+# Then visit http://localhost:9901 in browser
+
+--check rate limit stats
+curl http://localhost:9901/stats?filter=ratelimit
