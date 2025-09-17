@@ -1,3 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+data:
+  default.conf: |
+    server {
+        listen 8080;
+        server_name localhost;
+        location / {
+            root /usr/share/nginx/html;
+            index index.html index.htm;
+        }
+    }
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,7 +40,10 @@ spec:
         image: nginx
         ports:
         - containerPort: 8080
-
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
       # --- Envoy sidecar ---
       - name: envoy
         image: envoyproxy/envoy:v1.31.2
@@ -39,3 +58,7 @@ spec:
       - name: envoy-config
         configMap:
           name: envoy-config
+      - name: nginx-config
+        configMap:
+          name: nginx-config
+
