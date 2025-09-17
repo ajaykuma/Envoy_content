@@ -18,7 +18,8 @@ spec:
         ports:
         - containerPort: 8080 # HTTP debug/admin
         - containerPort: 8081 # gRPC RLS port
-        command: ["ratelimit", "-c", "/data/ratelimit/config/config.yaml", "--log-level", "debug"]
+        #command: ["ratelimit", "-c", "/data/ratelimit/config/config.yaml", "--log-level", "debug"]
+        command: ["ratelimit", "--log-level", "debug"]
         env:
         - name: USE_STATSD
           value: "false"
@@ -34,7 +35,8 @@ spec:
           value: ratelimit
         volumeMounts:
         - name: ratelimit-config
-          mountPath: /data/ratelimit/config
+          mountPath: '/data/ratelimit/config/config.yaml'
+          subPath: config.yaml
       volumes:
       - name: ratelimit-config
         configMap:
