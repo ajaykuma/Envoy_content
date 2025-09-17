@@ -1,0 +1,106 @@
+#Create directory
+mkdir deployments-mw
+cd deployments-mw
+
+#create mysql-deployment.yaml
+#create mysql-service.yaml
+
+#Apply
+kubectl apply -f mysql-deployment.yaml
+kubectl apply -f mysql-service.yaml
+
+#check pods
+kubectl get pods -l app=mediawiki-mysql
+
+#create mediawiki-deployment.yaml
+#create mediawiki-service.yaml
+
+#Apply
+kubectl apply -f mediawiki-deployment.yaml
+kubectl apply -f mediawiki-service.yaml
+
+#check pods
+kubectl get pods -l app=mediawiki
+
+#create envoy-config.yaml
+
+#Apply ConfigMap and start envoy
+kubectl apply -f envoy-config.yaml
+
+#create envoy-deployment.yaml
+#create envoy-service.yaml
+
+#deploy Envoy
+kubectl apply -f envoy-deployment.yaml
+kubectl apply -f envoy-service.yaml
+
+controlplane:~/deployments-mw$ kubectl get svc
+controlplane:~/deployments-mw$ kubectl get pods
+controlplane:~/deployments-mw$ kubectl get nodes -o wide
+
+#Access MediaWiki through envoy
+curl http://<node-ip>:30080/mediawiki/
+controlplane:~/deployments-mw$ curl http://172.30.1.2:30080/mediawiki/
+
+#Scale MediaWiki up/down [Optional]
+kubectl scale deployment mediawiki --replicas=2
+
+#Once MediaWiki setup is done in your browser:
+
+Add a new page in MediaWiki (like “TestPage”).
+Then, test via Envoy routing:
+curl http://<node-ip>:30080/mediawiki/index.php?title=TestPage
+
+#MediaWiki (running in the container) writes PHP logs to stdout by default 
+(if using the official image), or sometimes under /var/log/apache2/access.log.
+
+#get pods
+controlplane:~/deployments-mw$ kubectl get pods -l app=mediawiki
+NAME                         READY   STATUS    RESTARTS   AGE
+mediawiki-7f84586457-v5jpd   1/1     Running   0          11m
+
+#check logs
+controlplane:~/deployments-mw$ kubectl logs mediawiki-7f84586457-v5jpd
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 192.168.1.5. Set the 'ServerName' directive globally to suppress this message
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 192.168.1.5. Set the 'ServerName' directive globally to suppress this message
+[Thu Sep 11 08:25:12.025061 2025] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.62 (Debian) PHP/8.1.31 configured -- resuming normal operations
+[Thu Sep 11 08:25:12.025908 2025] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'
+192.168.1.6 - - [11/Sep/2025:08:35:34 +0000] "GET /mediawiki/ HTTP/1.1" 200 1020 "-" "curl/8.5.0"
+
+--check in logs to see client IP.
+
+--edit envoy-config.yaml to make sure that Envoy's HTTP connection manager has access logs enabled
+http_filters:
+- name: envoy.filters.http.router
+...
+access_log:
+  name: envoy.access_loggers.file
+  typed_config:
+    "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+    path: "/dev/stdout"
+    log_format:
+      text_format: "%START_TIME% %REQ(:METHOD)% %REQ(X-FORWARDED-FOR)% %REQ(:PATH)% %RESPONSE_CODE%\n"
+
+
+--restart envoy and check logs
+kubectl apply -f envoy-config.yaml
+kubectl logs <mediawiki-pod-name>
+
+#To see requests live
+controlplane:~/deployments-mw$ kubectl exec -it <mediawiki-pod-name> -- tail -f /var/log/apache2/access.log
+#or
+Note**
+The official mediawiki image we deployed does not run Apache with logs 
+under /var/log/apache2/access.log. Instead:
+It uses PHP + Apache in the container, but logs are sent to stdout/stderr.
+That means we’ll see them with kubectl logs
+controlplane:~/deployments-mw$ kubectl logs -f mediawiki-7f84586457-v5jpd
+
+#from another terminal
+curl http://172.30.1.2:30080/mediawiki/
+
+Note**
+If Envoy is in front, the IP you see inside MediaWiki will be Envoy’s unless 
+X-Forwarded-For is used. Most modern Envoy setups pass client IP in X-Forwarded-For, 
+so you can log that to see the real origin.
+

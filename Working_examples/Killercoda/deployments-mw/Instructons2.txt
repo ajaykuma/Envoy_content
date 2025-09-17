@@ -1,0 +1,169 @@
+#If working on Envoy based deployments on own machine or AWS machine
+In browser : use the right node_ip
+
+http://172.30.1.2:30080/mediawiki/
+
+#This loads the MediaWiki installer (config/index.php).
+
+#Database configuration
+
+During setup, provide database details. Use the MySQL service deployed:
+
+Database host → mediawiki-mysql (the service name in Kubernetes)
+Database name → mediawiki (from MYSQL_DATABASE)
+Database user → root
+Database password → rootpassword
+
+#Create admin account
+
+The setup wizard will ask to create an administrator username and password.
+Save this, which will be used to login
+
+#Get the LocalSettings.php file
+
+At the end of setup, MediaWiki will generate a LocalSettings.php file.
+Normally, it asks to download it.
+
+In Kubernetes, we need to mount it into our MediaWiki container, otherwise our settings won’t persist.
+#copy the file in running pod
+kubectl cp LocalSettings.php <mediawiki-pod-name>:/var/www/html/LocalSettings.php
+
+#
+Log in with admin user.
+Use the “Create” tab to make a new page, e.g. TestPage.
+Add some text and save it.
+
+#Verify
+curl http://<node-ip>:30080/mediawiki/index.php?title=TestPage
+
+---
+Circuit breaking
+#to be applied at clusters level
+clusters:
+- name: httpbin_service
+  connect_timeout: 0.25s
+  type: STRICT_DNS
+  lb_policy: ROUND_ROBIN
+  circuit_breakers:
+    thresholds:
+    - priority: DEFAULT
+      max_connections: 100
+      max_pending_requests: 50
+      max_requests: 1000
+      max_retries: 3
+  load_assignment:
+    cluster_name: httpbin_service
+    endpoints:
+    - lb_endpoints:
+      - endpoint:
+          address:
+            socket_address:
+              address: 127.0.0.1
+              port_value: 80
+
+- name: nginx_service
+  connect_timeout: 0.25s
+  type: STRICT_DNS
+  lb_policy: ROUND_ROBIN
+  circuit_breakers:
+    thresholds:
+    - priority: DEFAULT
+      max_connections: 100
+      max_pending_requests: 50
+      max_requests: 1000
+      max_retries: 3
+  load_assignment:
+    cluster_name: nginx_service
+    endpoints:
+    - lb_endpoints:
+      - endpoint:
+          address:
+            socket_address:
+              address: 127.0.0.1
+              port_value: 8080
+
+max_connections: Maximum number of simultaneous upstream connections.
+max_pending_requests: Queue limit for pending requests (before upstream responds).
+max_requests: Total active requests allowed.
+max_retries: Max retries per request before circuit trips.
+
+#check envoy config dump t check if breakers are active
+curl localhost:9901/config_dump | grep -A20 "circuit_breakers"
+
+#Local test with ApacheBench (exceed limits)
+ab -n 2000 -c 200 http://localhost:10001/get
+
+--check stats to confirm tripped breakers
+curl localhost:9901/stats | grep circuit_breaker
+
+#Outlier detection
+clusters:
+- name: httpbin_service
+  connect_timeout: 0.25s
+  type: STRICT_DNS
+  lb_policy: ROUND_ROBIN
+  circuit_breakers:
+    thresholds:
+    - priority: DEFAULT
+      max_connections: 100
+      max_pending_requests: 50
+      max_requests: 1000
+      max_retries: 3
+  outlier_detection:
+    consecutive_5xx: 5                # eject after 5 consecutive 5xx responses
+    interval: 10s                     # check interval
+    base_ejection_time: 30s           # time a host is ejected
+    max_ejection_percent: 50          # max % of hosts to eject
+  load_assignment:
+    cluster_name: httpbin_service
+    endpoints:
+    - lb_endpoints:
+      - endpoint:
+          address:
+            socket_address:
+              address: 127.0.0.1
+              port_value: 80
+
+- name: nginx_service
+  connect_timeout: 0.25s
+  type: STRICT_DNS
+  lb_policy: ROUND_ROBIN
+  circuit_breakers:
+    thresholds:
+    - priority: DEFAULT
+      max_connections: 100
+      max_pending_requests: 50
+      max_requests: 1000
+      max_retries: 3
+  outlier_detection:
+    consecutive_5xx: 5
+    interval: 10s
+    base_ejection_time: 30s
+    max_ejection_percent: 50
+  load_assignment:
+    cluster_name: nginx_service
+    endpoints:
+    - lb_endpoints:
+      - endpoint:
+          address:
+            socket_address:
+              address: 127.0.0.1
+              port_value: 8080
+
+consecutive_5xx: 5 → eject a host after 5 consecutive 5xx errors.
+interval: 10s → check health every 10 seconds.
+base_ejection_time: 30s → a host stays out of rotation for at least 30s.
+max_ejection_percent: 50 → never eject more than 50% of hosts, even if all are failing.
+
+#Verify config is loaded
+curl localhost:9901/config_dump | grep -A20 "outlier_detection"
+
+#Generate load 
+ab -n 100 -c 10 http://localhost:10001/get
+
+#Check stats
+curl localhost:9901/stats | grep outlier_detection
+Look for 
+cluster.httpbin_service.outlier_detection.ejections_total
+cluster.httpbin_service.outlier_detection.ejections_active
+

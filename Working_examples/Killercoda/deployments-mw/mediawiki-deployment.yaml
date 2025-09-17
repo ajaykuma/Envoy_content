@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mediawiki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mediawiki
+  template:
+    metadata:
+      labels:
+        app: mediawiki
+    spec:
+      containers:
+      - name: mediawiki
+        image: mediawiki:1.41
+        env:
+        - name: MEDIAWIKI_DB_TYPE
+          value: "mysql"
+        - name: MEDIAWIKI_DB_HOST
+          value: "mediawiki-mysql"
+        - name: MEDIAWIKI_DB_USER
+          value: "root"
+        - name: MEDIAWIKI_DB_PASSWORD
+          value: "rootpassword"
+        ports:
+        - containerPort: 80

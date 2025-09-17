@@ -1,0 +1,54 @@
+#Envoy acts as an edge proxy (ingress) for your cluster, fronting httpbin and nginx.
+
+#create backends.yaml
+
+#create services.yaml
+#No NodePort yet; Envoy will be the ingress.
+
+#create envoy-config.yaml
+
+#create envoy-deployment.yaml
+#Edge proxy deployment
+
+#create envoy-service.yaml
+#Expose envoy to external clients
+
+#Deployment
+kubectl apply -f backends.yaml
+kubectl apply -f services.yaml
+kubectl apply -f envoy-config.yaml
+kubectl apply -f envoy-deployment.yaml
+kubectl apply -f envoy-service.yaml
+
+#check
+kubectl get pods
+kubectl get svc
+
+#Test routing through Envoy
+kubectl get node -o wide
+NAME           STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION     CONTAINER-RUNTIME
+controlplane   Ready    control-plane   23d   v1.33.2   172.30.1.2    <none>        Ubuntu 24.04.1 LTS   6.8.0-51-generic   containerd://1.7.27
+node01         Ready    <none>          23d   v1.33.2   172.30.2.2    <none>        Ubuntu 24.04.1 LTS   6.8.0-51-generic   containerd://1.7.27
+controlplane:~/deployments-edg$ curl http://172.30.1.2:30080/httpbin/get
+{
+  "args": {}, 
+  "headers": {
+    "Accept": "*/*", 
+    "Host": "172.30.1.2:30080", 
+    "User-Agent": "curl/8.5.0", 
+    "X-Envoy-Expected-Rq-Timeout-Ms": "15000", 
+    "X-Envoy-Original-Path": "/httpbin/get"
+  }, 
+  "origin": "192.168.1.8", 
+  "url": "http://172.30.1.2:30080/get"
+}
+
+curl http://<node-ip>:30080/nginx/
+
+#check envoy admin
+kubectl port-forward deployment/envoy 9901:9901
+curl http://localhost:9901/clusters
+curl http://localhost:9901/listeners
+
+#Access logs
+kubectl logs -l app=envoy -f

@@ -1,0 +1,41 @@
+#create a Deployment with httpbin, nginx, 
+#and Envoy as a sidecar, a Service pointing to Envoy.
+
+mkdir deployments-scar
+cd deployments-scar
+
+#deploy
+kubectl apply -f envoy-config.yaml
+kubectl apply -f sidecar-deployment.yaml
+kubectl apply -f sidecar-service.yaml
+kubectl get pods -l app=example-app
+kubectl get svc example-app
+
+kubectl get pods
+kubectl describe pod podname
+#Testing
+# Test httpbin
+curl http://172.30.1.2:30080/httpbin/get
+
+# Test nginx
+curl http://172.30.1.2:30080/nginx/
+
+------------
+#Using multiple listeners
+Listener 0 → multiplexer (current config, port 10000)
+
+Listener 1 → only routes to httpbin_service (port 10001)
+
+Listener 2 → only routes to nginx_service (port 10002)
+
+curl localhost:9901/listeners
+curl localhost:10000/httpbin/get
+curl localhost:10000/nginx/
+
+--test dedicated listener
+curl localhost:10001/get
+
+curl localhost:10002/
+
+
+

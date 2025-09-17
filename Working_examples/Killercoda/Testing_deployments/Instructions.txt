@@ -1,0 +1,157 @@
+Create Testing_deployments > 
+deployments1
+-   deployment1.yaml
+deployments2
+-   deployment2.yaml
+deployments3
+-   deployment3.yaml
+
+#Deploy Envoy as a Kubernetes Pod
+We can run Envoy as a single Pod with a ConfigMap for envoy.yaml.
+create envoy-config.yaml
+
+#Create envoy-deployment.yaml
+Envoy listens on 10000 for routing requests to your deployments.
+Admin interface exposed on 9901 for debugging.
+
+#Deploying
+#to check if kubectl points to cluster
+kubectl config current-context
+kubectl cluster-info
+kubectl get nodes
+
+-------output--------
+
+controlplane:~$ kubectl config current-context
+kubernetes-admin@kubernetes
+controlplane:~$ kubectl cluster-info
+Kubernetes control plane is running at https://172.30.1.2:6443
+CoreDNS is running at https://172.30.1.2:6443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+
+To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
+controlplane:~$ kubectl get nodes
+NAME           STATUS   ROLES           AGE   VERSION
+controlplane   Ready    control-plane   24d   v1.33.2
+node01         Ready    <none>          24d   v1.33.2
+
+-----------output ends---------
+
+#Validations
+#Verify the YAMLs
+Open each of the deployment/service YAMLs and check they expose an HTTP port and a 
+Service for each deployment. Things that must align with the envoy config:
+
+Service names (e.g. service1) used in envoy-config.yaml must exist as Kubernetes 
+Service objects.
+
+The Service port/targetPort must match the port Envoy expects 
+(often 80 -> container port 5001 etc.)
+If you want to quickly inspect the files:
+
+sed -n '1,200p' Testing_deployments/deployments1/deployment1.yaml
+sed -n '1,200p' Testing_deployments/deployments2/deployment2.yaml
+sed -n '1,200p' Testing_deployments/deployments3/deployment3.yaml
+sed -n '1,300p' Testing_deployments/envoy-config.yaml
+sed -n '1,200p' Testing_deployments/envoy-deployment.yaml
+
+Look for metadata.name and spec.template.metadata.labels and 
+Service.metadata.name / Service.selector. Envoy’s clusters must point to those service names.
+
+#deployments
+kubectl apply -f Testing_deployments/deployments1/deployment1.yaml
+
+#Verify
+kubectl get pods -o wide
+kubectl get svc
+kubectl describe deployment deployment1   # if the metadata.name is deployment1
+kubectl get endpoints service1             # shows addresses Envoy will talk to
+
+#Apply ConfigMap & Envoy Depployment
+kubectl apply -f Testing_deployments/envoy-config.yaml
+kubectl apply -f Testing_deployments/envoy-deployment.yaml
+kubectl rollout status deployment/envoy
+kubectl get pods -l app=envoy -o wide
+
+#Port forwarding (from a different terminal)
+kubectl port-forward deployment/envoy 10000:10000 9901:9901
+
+10000 is the listener where Envoy will accept your test requests.
+9901 is the admin interface (config, stats, routes).
+
+#check
+controlplane:~$ curl http://localhost:9901/clusters | grep service1
+
+
+#1 Path routing for deployment1
+curl -v http://localhost:10000/service1
+
+#Check envoy admin /routes and /clusters:
+curl http://localhost:9901/routes
+curl http://localhost:9901/clusters
+
+#Check endpoints that Envoy sees
+kubectl get endpoints service1 -o yaml
+
+#Enable logs by editing envoy-config.yaml
+(use for Edits folder)
+POD=$(kubectl get pods -l app=envoy -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -it $POD -- tail -f /tmp/envoy_access.log
+> repeat your curl requests and watch which upstream cluster/host Envoy chose.
+
+Now proceed with deployment2 and deployments3
+kubectl apply -f Testing_deployments/deployments2/deployment2.yaml
+kubectl apply -f Testing_deployments/deployments3/deployment3.yaml
+kubectl get pods,svc
+
+#2 Weighted routing between services
+Edit envoy-config.yaml route for the test path (for example /api) and use weighted_clusters:
+(use for Edits folder)
+
+controlplane:~$ kubectl apply -f Testing_deployments/envoy-config.yaml
+configmap/envoy-config configured
+controlplane:~$ kubectl rollout restart deployment/envoy
+deployment.apps/envoy restarted
+controlplane:~$ kubectl get pods
+
+> Hit /api repeatedly and watch counts in the access log:
+for i in $(seq 1 200); do curl -s -o /dev/null http://localhost:10000/api; done
+Set $POD to the currently running envoy pod:
+controlplane:~$ POD=$(kubectl get pods -l app=envoy -o jsonpath='{.items[0].metadata.name}')
+
+# Then on the envoy pod:
+kubectl exec -it $POD -- sh -c "grep -o 'service1' /tmp/envoy_access.log | wc -l; grep -o 'service2' /tmp/envoy_access.log | wc -l; grep -o 'service3' /tmp/envoy_access.log | wc -l"
+
+#sample 
+controlplane:~$ kubectl exec -it $POD -- sh -c "grep -o 'service1' /tmp/envoy_access.log | wc -l; grep -o 'service2' /tmp/envoy_access.log | wc -l; grep -o 'service3' /tmp/envoy_access.log | wc -l"
+277
+88
+35
+
+#3 Path rewrite & header manipulation
+>Add prefix_rewrite and response_headers_to_add (or request_headers_to_add) to a route entry.
+
+>edit envoy-config.yaml
+
+- match: { prefix: "/v1" }
+  route:
+    cluster: service1
+    prefix_rewrite: "/"
+    response_headers_to_add:
+    - header:
+        key: "x-envoy-added"
+        value: "true"
+
+> Apply and restart envoy, then test:
+
+curl -i http://localhost:10000/v1/test
+# You should see the header: x-envoy-added: true
+
+#4 Retries and circuit breaking
+
+
+
+
+
+
+
+
