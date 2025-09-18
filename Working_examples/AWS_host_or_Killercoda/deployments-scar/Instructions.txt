@@ -124,7 +124,6 @@ Route from Pod A’s Envoy → Pod B’s Envoy → Pod B’s backend.
 #Testing
 controlplane:~$ curl http://localhost:10000/podb
 curl: (7) Failed to connect to localhost port 10000 after 0 ms: Couldn't connect to server
-ChatGPT said:
 
 The curl http://localhost:10000/podb from your controlplane node is failing because:
 
