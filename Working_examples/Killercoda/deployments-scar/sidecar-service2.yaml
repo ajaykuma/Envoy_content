@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: example-app-b
+spec:
+  selector:
+    app: example-app-b
+  ports:
+  - port: 10000
+    targetPort: 10000
+    name: http

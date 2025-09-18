@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ratelimit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ratelimit
+  template:
+    metadata:
+      labels:
+        app: ratelimit
+    spec:
+      containers:
+      - name: ratelimit
+        image: envoyproxy/ratelimit:master
+        ports:
+        - containerPort: 8080 # HTTP debug/admin
+        - containerPort: 8081 # gRPC RLS port
+        command: ["ratelimit", "-c", "/data/ratelimit/config/config.yaml", "--log-level", "debug"]
+        env:
+        - name: USE_STATSD
+          value: "false"
+        - name: LOG_LEVEL
+          value: "debug"
+        - name: REDIS_SOCKET_TYPE
+          value: tcp
+        - name: REDIS_URL
+          value: redis:6379
+        - name: RUNTIME_ROOT
+          value: /data
+        - name: RUNTIME_SUBDIRECTORY
+          value: ratelimit
+        volumeMounts:
+        - name: ratelimit-config
+          mountPath: /data/ratelimit/config/config.yaml
+          subPath: config.yaml
+          readOnly: true
+      volumes:
+      - name: ratelimit-config
+        configMap:
+          name: ratelimit-config
+          items:
+          - key: config.yaml
+            path: config.yaml

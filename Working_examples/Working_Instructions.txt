@@ -1,0 +1,24 @@
+Options to Work:
+-------------
+Killecoda 
+-ready to use environment (with kubernetes cluster [1 node]
+AWS preconfigured machines..
+-follow instructions Envoy-proxy\Working_examples\AWS_linux_host> 1_Working.txt
+> minikube status
+> kuebctl get pods
+> kubectl get nodes
+
+#if Minikube not running, minikube start --driver=docker
+
+--On both machines
+in home directory > we have git cloned in /Envoy
+
+--We can copy deployments from here \Envoy-proxy\Working_examples\Killercoda\
+  into home directory as deployements-xxx-yourinitial
+
+--to start
+kubectl create namespace my-namespace
+edit configs as per requirement
+kubectl apply -f deployment.yaml -n my-namespace
+
+--Each deployment folder has an instructions.txt file to follow.

@@ -1,0 +1,363 @@
+#setup Ubuntu 22.x on AWS
+
+--Prerequisites
+sudo apt update -y
+sudo apt install -y curl wget apt-transport-https conntrack
+
+--Install docker(runtime)
+sudo apt install -y docker.io
+sudo usermod -aG docker $USER
+newgrp docker
+
+
+--Download minicube
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+sudo install minikube-linux-amd64 /usr/local/bin/minikube
+
+minikube version
+
+--Start Minikube with Docker as the driver:
+minikube start --driver=docker
+
+------------output-----------
+
+ubuntu@ip-172-31-46-4:~$ minikube start --driver=docker
+* minikube v1.37.0 on Ubuntu 22.04 (xen/amd64)
+* Using the docker driver based on user configuration
+* Using Docker driver with root privileges
+* Starting "minikube" primary control-plane node in "minikube" cluster
+* Pulling base image v0.0.48 ...
+* Downloading Kubernetes v1.34.0 preload ...
+    > gcr.io/k8s-minikube/kicbase...:  488.51 MiB / 488.52 MiB  100.00% 57.91 M
+    > preloaded-images-k8s-v18-v1...:  337.07 MiB / 337.07 MiB  100.00% 36.85 M
+* Creating docker container (CPUs=2, Memory=3072MB) ...
+* Preparing Kubernetes v1.34.0 on Docker 28.4.0 ...
+* Configuring bridge CNI (Container Networking Interface) ...
+* Verifying Kubernetes components...
+  - Using image gcr.io/k8s-minikube/storage-provisioner:v5
+* Enabled addons: storage-provisioner, default-storageclass
+* kubectl not found. If you need it, try: 'minikube kubectl -- get pods -A'
+* Done! kubectl is now configured to use "minikube" cluster and "default" namespace by default
+
+ubuntu@ip-172-31-46-4:~$ minikube status
+minikube
+type: Control Plane
+host: Running
+kubelet: Running
+apiserver: Running
+kubeconfig: Configured
+
+------------output ends--------------
+
+--Install kubectl
+ubuntu@ip-172-31-46-4:~$ curl -LO https://dl.k8s.io/release/v1.30.4/bin/linux/amd64/kubectl
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   138  100   138    0     0    742      0 --:--:-- --:--:-- --:--:--   745
+100 49.0M  100 49.0M    0     0  64.9M      0 --:--:-- --:--:-- --:--:-- 64.9M
+
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin/
+kubectl version --client
+Client Version: v1.30.4
+Kustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3
+
+======================================
+
+#Testing Envoy
+# update and install common tools
+sudo apt update
+sudo apt install -y curl wget docker.io git netcat
+sudo usermod -aG docker $USER   # log out / back in or run `newgrp docker`
+
+--setup
+mkdir ~/envoy-test
+cd ~/envoy-test
+cat > envoy-minimal.yaml <<'EOF'
+static_resources:
+  listeners:
+  - name: listener_0
+    address:
+      socket_address: { address: 0.0.0.0, port_value: 10000 }
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_http
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: backend
+              domains: ["*"]
+              routes:
+              - match: { prefix: "/" }
+                direct_response:
+                  status: 200
+                  body:
+                    inline_string: "Hello from Envoy (minimal)\n"
+          http_filters:
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+admin:
+  access_log_path: /tmp/admin_access.log
+  address:
+    socket_address: { address: 0.0.0.0, port_value: 9901 }
+EOF
+
+--Run Envoy
+docker run --rm -it \
+  -p 10000:10000 -p 9901:9901 \
+  -v "$(pwd)/envoy-minimal.yaml":/etc/envoy/envoy.yaml:ro \
+  envoyproxy/envoy:v1.31.2
+
+--Test
+curl http://127.0.0.1:10000/
+# Should return: Hello from Envoy (minimal)
+
+curl http://127.0.0.1:9901/config_dump  # admin API
+# shows dump
+
+-------------optional using native package (no Docker)----------
+# Add repo (Ubuntu 22.04 = jammy)
+curl -sL 'https://getenvoy.io/gpg' | sudo gpg --dearmor -o /usr/share/keyrings/getenvoy-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/getenvoy-keyring.gpg] https://deb.dl.getenvoy.io/public/deb/ubuntu jammy main" \
+  | sudo tee /etc/apt/sources.list.d/getenvoy.list
+sudo apt update
+sudo apt install -y getenvoy-envoy
+# then run:
+envoy -c ~/envoy-test/envoy-minimal.yaml --log-level info
+------------optional ends-------------
+
+<ctrl+c>
+
+##Working with static config 
+--Envoy will receive traffic and forward it to an upstream HTTP backend
+Option 1:
+
+--Start a simple backend (local HTTP server)
+--Envoy config that forwards / → local backend (127.0.0.1:8081)
+
+--Create a dedicated network so Envoy can reach backends by service name:
+docker network create envoy-net
+docker run --rm -d --name httpbin --network envoy-net kennethreitz/httpbin
+
+mkdir deployments
+cd deployments
+vi envoy-basic.yaml
+
+edit envoy-basic.yaml to point to container
+-----------
+static_resources:
+  listeners:
+  - name: listener_0
+    address:
+      socket_address: { address: 0.0.0.0, port_value: 10000 }
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_http
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: backend
+              domains: ["*"]
+              routes:
+              - match: { prefix: "/" }
+                route: { cluster: local_backend }
+          http_filters:
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+  - name: local_backend
+    connect_timeout: 0.25s
+    type: STRICT_DNS          #Envoy to resolve "httpbin" via DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: local_backend
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: httpbin   #container name, resolvable via Docker network DNS
+                port_value: 80
+
+admin:
+  access_log_path: /tmp/admin_access.log
+  address:
+    socket_address: { address: 0.0.0.0, port_value: 9901 }
+---
+
+--Run Envoy attched to same network
+docker run --rm -it --name envoy --network envoy-net \
+  -p 10000:10000 -p 9901:9901 \
+  -v "$(pwd)/deployments/envoy-basic.yaml":/etc/envoy/envoy.yaml:ro \
+  envoyproxy/envoy:v1.31.2
+
+--Testing
+ubuntu@ip-172-31-46-4:~$ curl http://127.0.0.1:10000/get
+{
+  "args": {},
+  "headers": {
+    "Accept": "*/*",
+    "Host": "127.0.0.1:10000",
+    "User-Agent": "curl/7.81.0",
+    "X-Envoy-Expected-Rq-Timeout-Ms": "15000"
+  },
+  "origin": "172.18.0.3",
+  "url": "http://127.0.0.1:10000/get"
+
+
+ubuntu@ip-172-31-46-4:~$ curl http://127.0.0.1:9901/clusters
+local_backend::observability_name::local_backend
+local_backend::default_priority::max_connections::1024
+local_backend::default_priority::max_pending_requests::1024
+local_backend::default_priority::max_requests::1024
+local_backend::default_priority::max_retries::3
+local_backend::high_priority::max_connections::1024
+local_backend::high_priority::max_pending_requests::1024
+local_backend::high_priority::max_requests::1024
+local_backend::high_priority::max_retries::3
+local_backend::added_via_api::false
+local_backend::172.18.0.2:80::cx_active::0
+local_backend::172.18.0.2:80::cx_connect_fail::0
+local_backend::172.18.0.2:80::cx_total::1
+local_backend::172.18.0.2:80::rq_active::0
+local_backend::172.18.0.2:80::rq_error::0
+local_backend::172.18.0.2:80::rq_success::1
+local_backend::172.18.0.2:80::rq_timeout::0
+local_backend::172.18.0.2:80::rq_total::1
+local_backend::172.18.0.2:80::hostname::httpbin
+local_backend::172.18.0.2:80::health_flags::healthy
+local_backend::172.18.0.2:80::weight::1
+local_backend::172.18.0.2:80::region::
+local_backend::172.18.0.2:80::zone::
+local_backend::172.18.0.2:80::sub_zone::
+local_backend::172.18.0.2:80::canary::false
+local_backend::172.18.0.2:80::priority::0
+local_backend::172.18.0.2:80::success_rate::-1
+local_backend::172.18.0.2:80::local_origin_success_rate::-1
+
+Some observations from your clusters output:
+
+Cluster local_backend has 2 total requests (cx_total::2) and 2 successful responses (rq_success::2).
+Active connections are 0 because our requests completed.
+Hostname httpbin resolves correctly, and health_flags say healthy.
+
+Thus summarizing:
+Envoy can communicate with our backend (httpbin) using the Docker network.
+The curl http://127.0.0.1:10000/get ran from the host works because Envoy listens on port 10000 on the host and forwards to the backend container.
+
+##Working with full static config , multiple backends
+--Now running a full config which can use connect to 2 backends (httpbin,nginx)
+--first additionally run nginx
+docker run -d --name nginx --network envoy-net -p 8080:80 nginx
+
+ubuntu@ip-172-31-46-4:~$ docker container ls
+CONTAINER ID   IMAGE                                 COMMAND                  CREATED          STATUS          PORTS                                                                                                                                  NAMES
+582031bba0c8   nginx                                 "/docker-entrypoint.…"   29 seconds ago   Up 29 seconds   0.0.0.0:8080->80/tcp, [::]:8080->80/tcp                                                                                                nginx
+4fdfead5d5f1   envoyproxy/envoy:v1.31.2              "/docker-entrypoint.…"   14 minutes ago   Up 14 minutes   0.0.0.0:9901->9901/tcp, :::9901->9901/tcp, 0.0.0.0:10000->10000/tcp, :::10000->10000/tcp                                               envoy
+0dd804caaf1e   kennethreitz/httpbin                  "gunicorn -b 0.0.0.0…"   20 minutes ago   Up 20 minutes   80/tcp                                                                                                                                 httpbin
+e7955e99854c   gcr.io/k8s-minikube/kicbase:v0.0.48   "/usr/local/bin/entr…"   59 minutes ago   Up 59 minutes   127.0.0.1:32768->22/tcp, 127.0.0.1:32769->2376/tcp, 127.0.0.1:32770->5000/tcp, 127.0.0.1:32771->8443/tcp, 127.0.0.1:32772->32443/tcp   minikube
+
+
+vi deployments/envoy-full.yaml
+---
+static_resources:
+  listeners:
+    - name: listener_0
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 10000
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress_http
+                route_config:
+                  name: local_route
+                  virtual_hosts:
+                    - name: httpbin_service
+                      domains: ["*"]
+                      routes:
+                        - match:
+                            prefix: "/httpbin"
+                          route:
+                            cluster: httpbin_backend
+                            prefix_rewrite: "/"
+                        - match:
+                            prefix: "/nginx"
+                          route:
+                            cluster: nginx_backend
+                            prefix_rewrite: "/"
+                http_filters:
+                  - name: envoy.filters.http.router
+		    typed_config:
+		      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+    - name: httpbin_backend
+      connect_timeout: 0.25s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: httpbin_backend
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: httpbin
+                      port_value: 80
+
+    - name: nginx_backend
+      connect_timeout: 0.25s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: nginx_backend
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: nginx
+                      port_value: 80
+
+admin:
+  access_log_path: "/tmp/admin_access.log"
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 9901
+---
+kill the previous /envoy container if running and then run
+
+docker run --rm -it --name envoy --network envoy-net \
+  -p 10000:10000 -p 9901:9901 \
+  -v "$(pwd)/deployments/envoy-full.yaml":/etc/envoy/envoy.yaml:ro \
+  envoyproxy/envoy:v1.31.2
+
+--Test routing
+# HTTPBin
+curl http://127.0.0.1:10000/httpbin/get
+
+# Nginx
+curl http://127.0.0.1:10000/nginx
+
+--Envoy stats
+curl http://127.0.0.1:9901/clusters
+curl http://127.0.0.1:9901/routes
+
+Note**
+Thus config allows Envoy to proxy multiple backends (httpbin and nginx) with static routing.
+
+

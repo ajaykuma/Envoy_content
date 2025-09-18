@@ -1,0 +1,187 @@
+#For Local Rate Limiting
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: envoy-config
+data:
+  envoy.yaml: |
+    static_resources:
+      listeners:
+      # --- HTTP Chain ---
+      - name: listener_http
+        address:
+          socket_address:
+            address: 0.0.0.0
+            port_value: 10000
+        filter_chains:
+        - filter_chain_match:
+            transport_protocol: "raw_buffer"
+          filters:
+          - name: envoy.filters.network.http_connection_manager
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+              stat_prefix: ingress_http
+              access_log:
+              - name: envoy.access_loggers.stdout
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                  log_format:
+                    text_format: "[%START_TIME%] %DOWNSTREAM_REMOTE_ADDRESS% \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %BYTES_SENT% \"%REQ(USER-AGENT)%\" \"%UPSTREAM_CLUSTER%\" %RESPONSE_DURATION%\n"
+              route_config:
+                name: local_route
+                virtual_hosts:
+                - name: backend
+                  domains: ["*"]
+                  routes:
+                  - match: { prefix: "/httpbin" }
+                    route: 
+                      cluster: httpbin_service
+                      prefix_rewrite: "/"
+                  - match: { prefix: "/nginx" }
+                    route: 
+                      cluster: nginx_service
+                      prefix_rewrite: "/"
+              http_filters:
+              - name: envoy.filters.http.cors
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.cors.v3.Cors
+              - name: envoy.filters.http.local_ratelimit
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                  stat_prefix: http_local_rate_limiter
+                  token_bucket:
+                    max_tokens: 5
+                    tokens_per_fill: 1
+                    fill_interval: 1s
+                  filter_enabled:
+                    runtime_key: local_rate_limit_enabled
+                    default_value:
+                      numerator: 100
+                      denominator: HUNDRED
+                  filter_enforced:
+                    runtime_key: local_rate_limit_enforced
+                    default_value:
+                      numerator: 100
+                      denominator: HUNDRED
+                  response_headers_to_add:
+                  - header:
+                      key: "x-local-rate-limit"
+                      value: "true"
+              - name: envoy.filters.http.router
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+              access_log:
+              - name: envoy.access_loggers.stdout
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                  log_format:
+                    text_format: |
+                      [%START_TIME%] "%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%" 
+                      %RESPONSE_CODE% cluster=%UPSTREAM_CLUSTER% upstream_host=%UPSTREAM_HOST% 
+                      duration=%DURATION%ms user-agent="%REQ(USER-AGENT)%"
+
+      # # --- HTTPS Chain ---
+      # - name: listener_https
+      #   address:
+      #     socket_address:
+      #       address: 0.0.0.0
+      #       port_value: 10443
+      #   filter_chains:
+      #   - filter_chain_match:
+      #       transport_protocol: "tls"
+      #     transport_socket:
+      #       name: envoy.transport_sockets.tls
+      #       typed_config:
+      #         "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+      #         common_tls_context:
+      #           tls_certificates:
+      #           - certificate_chain:
+      #               filename: /etc/envoy/certs/tls.crt
+      #             private_key:
+      #               filename: /etc/envoy/certs/tls.key
+      #     filters:
+      #     - name: envoy.filters.network.http_connection_manager
+      #       typed_config:
+      #         "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+      #         stat_prefix: ingress_https
+      #         access_log:
+      #         - name: envoy.access_loggers.stdout
+      #           typed_config:
+      #             "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+      #             log_format:
+      #               text_format: "[%START_TIME%] %DOWNSTREAM_REMOTE_ADDRESS% \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %BYTES_SENT% \"%REQ(USER-AGENT)%\" \"%UPSTREAM_CLUSTER%\" %RESPONSE_DURATION%\n"
+      #         route_config:
+      #           name: https_route
+      #           virtual_hosts:
+      #           - name: secure_host
+      #             domains: ["*"]
+      #             routes:
+      #             - match: { prefix: "/httpbin" }
+      #               route: { cluster: httpbin_service }
+      #             - match: { prefix: "/nginx" }
+      #               route: { cluster: nginx_service }
+      #         http_filters:
+      #         - name: envoy.filters.http.cors
+      #           typed_config:
+      #             "@type": type.googleapis.com/envoy.extensions.filters.http.cors.v3.Cors
+      #         - name: envoy.filters.http.local_ratelimit
+      #           typed_config:
+      #             "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+      #             stat_prefix: https_local_rate_limiter
+      #             token_bucket:
+      #               max_tokens: 5
+      #               tokens_per_fill: 1
+      #               fill_interval: 1s
+      #             filter_enabled:
+      #               runtime_key: local_rate_limit_enabled
+      #               default_value:
+      #                 numerator: 100
+      #                 denominator: HUNDRED
+      #             filter_enforced:
+      #               runtime_key: local_rate_limit_enforced
+      #               default_value:
+      #                 numerator: 100
+      #                 denominator: HUNDRED
+      #             response_headers_to_add:
+      #             - header:
+      #                 key: "x-local-rate-limit"
+      #                 value: "true"
+      #         - name: envoy.filters.http.router
+      #           typed_config:
+      #             "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+      # --- Clusters ---
+      clusters:
+      - name: httpbin_service
+        connect_timeout: 0.25s
+        type: STRICT_DNS
+        lb_policy: ROUND_ROBIN
+        load_assignment:
+          cluster_name: httpbin_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: httpbin
+                    port_value: 80
+      - name: nginx_service
+        connect_timeout: 0.25s
+        type: STRICT_DNS
+        lb_policy: ROUND_ROBIN
+        load_assignment:
+          cluster_name: nginx_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: nginx
+                    port_value: 80
+
+    admin:
+      access_log_path: /tmp/admin_access.log
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 9901

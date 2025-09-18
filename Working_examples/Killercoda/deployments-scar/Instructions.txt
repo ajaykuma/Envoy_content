@@ -1,0 +1,207 @@
+#create a Deployment with httpbin, nginx, 
+#and Envoy as a sidecar, a Service pointing to Envoy.
+
+mkdir deployments-scar
+cd deployments-scar
+
+#deploy
+kubectl apply -f envoy-config.yaml
+kubectl apply -f sidecar-deployment.yaml
+kubectl apply -f sidecar-service.yaml
+kubectl get pods -l app=example-app
+kubectl get svc example-app
+
+kubectl get pods
+kubectl describe pod podname
+#Testing
+--checking each container
+kubectl logs example-app-548cdcd868-scnc8 -c envoy
+kubectl logs example-app-548cdcd868-scnc8 -c nginx
+
+controlplane:~$ kubectl get svc
+NAME          TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)     AGE
+example-app   ClusterIP   10.99.232.125   <none>        10000/TCP   18m
+kubernetes    ClusterIP   10.96.0.1       <none>        443/TCP     29d
+
+controlplane:~$ kubectl get pods
+NAME                           READY   STATUS    RESTARTS   AGE
+example-app-548cdcd868-c9llq   3/3     Running   0          2m54s
+
+Service example-app exposes port 10000 (Envoy listener). That means any request to the Service 
+on port 10000 goes first into Envoy, which will route to /httpbin or /nginx inside the pod.
+
+#Sanity test within Cluster
+kubectl run tmp --rm -it --image=busybox --restart=Never sh
+--Inside shell
+
+# Test httpbin
+wget -qO- http://example-app:10000/httpbin/get
+
+# Test nginx
+wget -qO- http://example-app:10000/nginx
+
+#Since the Service is ClusterIP, 
+it’s only reachable from inside the cluster. To test from outside >
+
+kubectl port-forward svc/example-app 10000:10000
+
+# httpbin
+curl http://localhost:10000/httpbin/get
+
+# nginx
+curl http://localhost:10000/nginx
+
+#Watching envoy-side car log
+kubectl logs -f deploy/example-app -c envoy
+
+Summary:
+
+All three containers (httpbin, nginx, envoy) are in the same pod, sharing the same network namespace.
+Kubernetes Service example-app only exposes Envoy’s port (10000).
+
+So what happens:
+
+From outside the pod (any other pod, or port-forwarded access from outside the cluster):
+You can only reach the pod through the Service.
+The Service points to port 10000, which is Envoy’s listener.
+
+That means any external traffic to example-app:10000 will always flow through Envoy first.
+You cannot directly reach httpbin on port 80 or nginx on port 8080 from another pod unless you:
+create a separate Service exposing those container ports, or
+
+<optional>
+use kubectl exec into the pod and hit localhost:80 or localhost:8080.
+
+From inside the same pod:
+Containers share the loopback interface.
+So technically, if you exec into the pod, you could curl localhost:80 (httpbin) or localhost:8080 (nginx) and bypass Envoy.
+But other pods can’t, unless you expose those ports with extra Services.
+------------
+#Using multiple listeners
+Listener 0 → multiplexer (current config, port 10000)
+Listener 1 → only routes to httpbin_service (port 10001)
+Listener 2 → only routes to nginx_service (port 10002)
+
+Refer: envoy-config2.yaml
+--Multiplexed listener (10000) → single entry point, Envoy routes to /httpbin or /nginx depending on prefix.
+--Dedicated listeners (10001 & 10002) → direct pass-through endpoints to each backend cluster.
+
+kubectl apply -f envoy-config2.yaml 
+
+kubectl rollout restart deployment example-app
+
+#since our Service only exposes 10000 now, let’s open all listeners locally
+kubectl port-forward deploy/example-app 10000:10000 10001:10001 10002:10002
+
+#Multiplexed listener:
+#Requests to 10000 → Envoy inspects the path prefix, then routes accordingly
+
+curl http://localhost:10000/httpbin/get
+curl http://localhost:10000/nginx
+
+
+#Dedicated httpbin listener:
+#Requests to 10001 → Always forwarded to httpbin backend.
+curl http://localhost:10001/get
+
+#Dedicated nginx listener:
+#Requests to 10002 → Always forwarded to nginx backend.
+
+curl http://localhost:10002/
+
+-------------------------
+#Service Mesh Simulation
+Pod A (our existing example-app) → has Envoy (3 listeners) + httpbin + nginx.
+Pod B (new pod) → will also run Envoy (sidecar) + maybe just a dummy backend 
+(say, another httpbin). Envoy in Pod B will be the only entry point for that pod.
+
+Route from Pod A’s Envoy → Pod B’s Envoy → Pod B’s backend.
+
+--Make changes to envoy-config2 (uncomment match and cluster for pod b)
+#Deploy & Test
+
+
+#Testing
+controlplane:~$ curl http://localhost:10000/podb
+curl: (7) Failed to connect to localhost port 10000 after 0 ms: Couldn't connect to server
+ChatGPT said:
+
+The curl http://localhost:10000/podb from your controlplane node is failing because:
+
+Our Service example-app is a ClusterIP. That means it’s only reachable inside the Kubernetes cluster, 
+not from the node via localhost.
+Port 10000 on the pod is not automatically exposed outside the cluster; localhost:10000
+on the controlplane node does not forward to the pod.
+
+>Port-forward
+
+This is simplest for testing from your controlplane:
+kubectl port-forward svc/example-app 10000:10000
+
+
+Then, in a new shell:
+
+curl http://localhost:10000/podb
+
+
+Now the request will go:
+Controlplane → kubectl port-forward → Pod A Envoy (listener_0) → routes to Pod B Envoy → Pod B httpbin
+(for external access):
+
+If you want to access it from outside the cluster without port-forwarding, 
+you would need to change example-app Service to NodePort or LoadBalancer:
+
+spec:
+  type: NodePort
+  ports:
+  - port: 10000
+    targetPort: 10000
+    nodePort: 30080   # Example
+
+
+Then you can access it via <node-ip>:30080/podb.
+
+kubectl run -it loadtester --image=radial/busyboxplus:curl --rm -- /bin/sh
+# Inside pod
+
+curl -v http://example-app-b:10000/get
+Should return JSON from httpbin in Pod B.
+
+curl -v http://example-app:10000/podb
+
+Pod A → Envoy → Pod B Envoy → httpbin works perfectly.
+
+#Simulate multiple requests
+#Send multiple requests through Pod A Envoy and see how Pod B responds:
+for i in $(seq 1 20); do curl -s http://example-app:10000/podb; done
+
+<exit>
+
+controlplane:~$ kubectl get svc example-app
+NAME          TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)     AGE
+example-app   ClusterIP   10.108.83.198   <none>        10000/TCP   47m
+
+controlplane:~$ for i in $(seq 1 20); do
+    curl -s http://10.108.83.198:10000/podb
+done
+
+#Test failure scenarios
+Stop Pod B and see how Pod A handles upstream failure:
+
+> kubectl delete pod <example-app-b-pod>
+Envoy in Pod A should return 503 for /podb requests. This validates resiliency / upstream failures.
+Bring Pod B back and check traffic resumes.
+
+kubectl run -it loadtester --image=radial/busyboxplus:curl --rm -- /bin/sh
+# Inside the pod
+wget -O test-scar.sh <paste_script_here>
+chmod +x test-scar.sh
+./test-scar.sh
+
+Note**Inside that pod, example-app:10000 and 
+example-app:9901 are reachable because Kubernetes DNS will resolve the ClusterIP services.
+
+ClusterIP services cannot be accessed from outside the cluster node network unless 
+you expose them via NodePort, LoadBalancer, or port-forward.
+
+
