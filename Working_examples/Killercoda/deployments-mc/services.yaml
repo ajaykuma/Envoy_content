@@ -42,9 +42,12 @@ kind: Service
 metadata:
   name: ratelimit
 spec:
-  ports:
-  - port: 8081
-    name: grpc
-    targetPort: 8081
   selector:
     app: ratelimit
+  ports:
+  - name: grpc
+    port: 8081
+    targetPort: 8081
+  - name: http
+    port: 8080
+    targetPort: 8080

@@ -301,8 +301,21 @@ kubectl apply -f rlser-deployment.yaml -n aj-ns
 
 kubectl get pods -o wide -n aj-ns
 
-kubectl logs -n aj-ns ratelimit-575fbc9f69-9dbmq | grep 8081
+kubectl logs -n aj-ns ratelimit-pod | grep 8081
 level=warning msg="Listening for gRPC on '0.0.0.0:8081'"
+
+controlplane:~$ kubectl logs -n aj-ns ratelimit-pod | grep -v flush
+Look for msgs like
+[
+"connecting to redis on redis-global:6379 with pool size 10"
+time="2025-09-18T03:28:24Z" level=info msg="Successfully loaded the initial ratelimit configs"
+time="2025-09-18T03:28:24Z" level=warning msg="Listening for HTTP on '0.0.0.0:8080'"
+time="2025-09-18T03:28:24Z" level=debug msg="waiting for runtime update"
+time="2025-09-18T03:28:24Z" level=debug msg="Waiting for config update event"
+time="2025-09-18T03:28:24Z" level=warning msg="Listening for debug on '0.0.0.0:6070'"
+time="2025-09-18T03:28:24Z" level=warning msg="Listening for gRPC on '0.0.0.0:8081'"
+time="2025-09-18T03:29:06Z" level=debug msg="caught error during call: no rate limit configuration loaded"
+]
 
 kubectl run -it tmp --rm --image=busybox:1.36 --restart=Never -- sh
 # then inside:
@@ -313,7 +326,7 @@ nc -zv ratelimit 8081
 #Envoy expects (cluster_name: ratelimit_service → resolves to service ratelimit:8081)
 <exit>
 
-kubectl logs -f deploy/ratelimit
+kubectl logs -f deploy/ratelimit-pod
 
 --use debug pod from ratelimit
 kubectl run -it redis-test --rm --image=redis:6 --restart=Never -- bash

@@ -1,30 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: example-app
+  name: example-app-b
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: example-app
+      app: example-app-b
   template:
     metadata:
       labels:
-        app: example-app
+        app: example-app-b
     spec:
       containers:
       - name: httpbin
         image: kennethreitz/httpbin
         ports:
         - containerPort: 80
-
-      - name: nginx
-        image: nginx:alpine
-        ports:
-        - containerPort: 8080
-        volumeMounts:
-        - name: nginx-conf
-          mountPath: /etc/nginx/conf.d
 
       - name: envoy
         image: envoyproxy/envoy:v1.33-latest
@@ -35,10 +27,8 @@ spec:
         volumeMounts:
         - name: envoy-config
           mountPath: /etc/envoy
+
       volumes:
       - name: envoy-config
         configMap:
-          name: envoy-config
-      - name: nginx-conf
-        configMap:
-          name: nginx-config
+          name: envoy-config-b

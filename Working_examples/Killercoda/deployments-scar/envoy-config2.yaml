@@ -30,6 +30,10 @@ data:
                     route:
                       cluster: nginx_service
                       prefix_rewrite: "/"
+                  # - match: { prefix: "/podb" }
+                  #   route:
+                  #     cluster: pod_b_envoy
+                  #     prefix_rewrite: "/get"   # calls httpbin inside Pod B
               http_filters:
               - name: envoy.filters.http.router
                 typed_config:
@@ -117,6 +121,19 @@ data:
                   socket_address:
                     address: 127.0.0.1
                     port_value: 8080
+      # - name: pod_b_envoy
+      #   connect_timeout: 0.25s
+      #   type: STRICT_DNS
+      #   lb_policy: ROUND_ROBIN
+      #   load_assignment:
+      #     cluster_name: pod_b_envoy
+      #     endpoints:
+      #     - lb_endpoints:
+      #       - endpoint:
+      #           address:
+      #             socket_address:
+      #               address: example-app-b   # DNS of Pod B Service
+      #               port_value: 10000
 
     admin:
       access_log_path: /tmp/admin_access.log

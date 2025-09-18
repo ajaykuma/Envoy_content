@@ -1,3 +1,4 @@
+#For Global Rate limiting (or refer: deployments-grl)
 apiVersion: v1
 kind: ConfigMap
 metadata:

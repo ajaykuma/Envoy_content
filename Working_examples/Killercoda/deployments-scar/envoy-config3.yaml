@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: envoy-config
+  name: envoy-config-b
 data:
   envoy.yaml: |
     static_resources:
@@ -21,29 +21,21 @@ data:
                 - name: backend
                   domains: ["*"]
                   routes:
-                  - match: { prefix: "/httpbin" }
+                  - match: { prefix: "/" }
                     route:
-                      cluster: httpbin_service
-                      prefix_rewrite: "/"
-                  - match: { prefix: "/nginx" }
-                    route:
-                      cluster: nginx_service
-                      prefix_rewrite: "/"
+                      cluster: httpbin_service_b
               http_filters:
               - name: envoy.filters.http.router
                 typed_config:
                   "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
-              access_log:
-              - name: envoy.access_loggers.stdout
-                typed_config:
-                  "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+
       clusters:
-      - name: httpbin_service
+      - name: httpbin_service_b
         connect_timeout: 0.25s
-        type: STATIC
+        type: STRICT_DNS
         lb_policy: ROUND_ROBIN
         load_assignment:
-          cluster_name: httpbin_service
+          cluster_name: httpbin_service_b
           endpoints:
           - lb_endpoints:
             - endpoint:
@@ -51,20 +43,10 @@ data:
                   socket_address:
                     address: 127.0.0.1
                     port_value: 80
-      - name: nginx_service
-        connect_timeout: 0.25s
-        type: STATIC
-        lb_policy: ROUND_ROBIN
-        load_assignment:
-          cluster_name: nginx_service
-          endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: 127.0.0.1
-                    port_value: 8080
+
     admin:
       access_log_path: /tmp/admin_access.log
       address:
-        socket_address: { address: 0.0.0.0, port_value: 9901 }
+        socket_address:
+          address: 0.0.0.0
+          port_value: 9901

@@ -218,7 +218,8 @@ spec:
         # Remove RUNTIME_APPDIRECTORY to use default
         volumeMounts:
         - name: config-volume
-          mountPath: /data/ratelimit/config
+          mountPath: /data/ratelimit/config/config.yaml
+          subPath: config.yaml
           readOnly: true
         # Add startup probe to give more time
         startupProbe:
@@ -246,6 +247,9 @@ spec:
       - name: config-volume
         configMap:
           name: ratelimit-config-global
+          items:
+          - key: config.yaml
+            path: config.yaml
 
 ---
 apiVersion: v1
@@ -348,7 +352,7 @@ spec:
     spec:
       containers:
       - name: envoy
-        image: envoyproxy/envoy:v1.31.2
+        image: envoyproxy/envoy:v1.33-latest
         args: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "debug"]
         ports:
         - containerPort: 10000
