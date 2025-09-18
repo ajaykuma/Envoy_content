@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-script
+data:
+  test.js: |
+    import http from "k6/http";
+    import { check, sleep } from "k6";
+
+    export let options = {
+      vus: 5,          // 5 concurrent users
+      duration: "30s", // run for 30 seconds
+    };
+
+    export default function () {
+      let res1 = http.get("http://envoy:10000/httpbin/get");
+      check(res1, { "httpbin: status is 200": (r) => r.status === 200 });
+
+      let res2 = http.get("http://envoy:10000/nginx");
+      check(res2, { "nginx: status is 200": (r) => r.status === 200 });
+
+      sleep(1);
+    }

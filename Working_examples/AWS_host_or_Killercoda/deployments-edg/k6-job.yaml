@@ -1,0 +1,21 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-test
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 600   # <-- keep Pods for 10 minutes after completion/failure
+  template:
+    spec:
+      containers:
+      - name: k6
+        image: grafana/k6:latest
+        command: ["k6", "run", "/scripts/test.js"]
+        volumeMounts:
+        - name: k6-scripts
+          mountPath: /scripts
+      volumes:
+      - name: k6-scripts
+        configMap:
+          name: k6-script
+      restartPolicy: Never
