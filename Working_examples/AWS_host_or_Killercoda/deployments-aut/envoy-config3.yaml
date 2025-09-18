@@ -1,0 +1,121 @@
+#JWT + RBAC + Metrics
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: envoy-config
+data:
+  envoy.yaml: |
+    static_resources:
+      listeners:
+        - name: listener_0
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: 10000
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: ingress_http
+                    route_config:
+                      name: local_route
+                      virtual_hosts:
+                        - name: backend_services
+                          domains: ["*"]
+                          routes:
+                            - match: { prefix: "/httpbin" }
+                              route:
+                                cluster: httpbin_service
+                                prefix_rewrite: "/"
+                            - match: { prefix: "/nginx" }
+                              route:
+                                cluster: nginx_service
+                                prefix_rewrite: "/"
+                    http_filters:
+                      # JWT authentication filter
+                      - name: envoy.filters.http.jwt_authn
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+                          providers:
+                            dummy_provider:
+                              issuer: "test-issuer"
+                              local_jwks:
+                                inline_string: |
+                                  {
+                                    "keys": [
+                                      {
+                                        "kty": "oct",
+                                        "kid": "testkey",
+                                        "k": "dGVzdHNlY3JldA=="
+                                      }
+                                    ]
+                                  }
+                              forward: true
+                          rules:
+                            - match: { prefix: "/" }
+                              requires:
+                                provider_name: dummy_provider
+                      # RBAC filter (role-based access control)
+                      - name: envoy.filters.http.rbac
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.rbac.v3.RBAC
+                          rules:
+                            action: ALLOW
+                            policies:
+                              "allow-httpbin":
+                                permissions:
+                                  - url_path:
+                                      path: "/httpbin"
+                                      ignore_case: true
+                                principals:
+                                  - any: true
+                              "allow-nginx-admin":
+                                permissions:
+                                  - url_path:
+                                      path: "/nginx"
+                                      ignore_case: true
+                                principals:
+                                  - metadata:
+                                      filter: envoy.filters.http.jwt_authn
+                                      path:
+                                        - key: jwt_payload
+                                        - key: role
+                                      value:
+                                        string_match:
+                                          exact: "admin"
+                      - name: envoy.filters.http.router
+
+      clusters:
+        - name: httpbin_service
+          type: STRICT_DNS
+          connect_timeout: 0.25s
+          load_assignment:
+            cluster_name: httpbin_service
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: httpbin
+                          port_value: 80
+
+        - name: nginx_service
+          type: STRICT_DNS
+          connect_timeout: 0.25s
+          load_assignment:
+            cluster_name: nginx_service
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: nginx
+                          port_value: 80
+
+    admin:
+      access_log_path: /tmp/admin_access.log
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 9901

@@ -113,6 +113,8 @@ controlplane:~$ kubectl rollout restart deployment/envoy
 deployment.apps/envoy restarted
 controlplane:~$ kubectl get pods
 
+kubectl get nodes -o wide
+
 > Hit /api repeatedly and watch counts in the access log:
 for i in $(seq 1 200); do curl -s -o /dev/null http://localhost:10000/api; done
 Set $POD to the currently running envoy pod:

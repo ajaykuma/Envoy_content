@@ -1,0 +1,105 @@
+kubectl apply -f envoy-config.yaml
+kubectl apply -f envoy-deployment.yaml
+kubectl apply -f nginx-dep-ser.yaml
+kubectl apply -f httpbin-dep-ser.yaml
+
+
+#Get nodeport for Envoy
+kubectl get svc envoy
+
+#test without JWT
+--should fail
+curl -v http://<NODE_IP>:31000/httpbin/get
+
+#Create a Dummy JWT/self-signed JWT
+
+--we can use HS256 (symmetric key)
+# Install jwt-cli if you don't have it
+sudo apt update
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+#if reqquired> sudo npm uninstall -g jwt-cli
+sudo apt install -y nodejs
+sudo npm install -g jwt-cli@2.0.0
+
+node -v
+npm -v
+
+npm install -g jwt-cli
+
+# Generate a test token
+jwt encode --secret "testsecret" '{"sub":"1234567890","name":"Test User","iat":1516239022}'
+
+Your token:
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IlRlc3QgVXNlciIsImlhdCI6MTUxNjIzOTAyMn0.abc123...
+
+Send a request with JWT token
+curl -v -H "Authorization: Bearer <YOUR_DUMMY_JWT>" http://<NODE_IP>:31000/httpbin/get
+
+Without token → Envoy rejects (401).
+With dummy token → Envoy allows access.
+
+For nginx
+curl -v http://<NODE_IP>:31000/nginx/
+--should fail and show 401 authorized
+curl -v -H "Authorization: Bearer <TOKEN>" http://<NODE_IP>:31000/nginx/
+
+--check metrics
+curl http://<NODE_IP>:31901/stats | grep jwt
+should show
+http.ingress_http.jwt_authn.dummy_provider.allowed: 5
+http.ingress_http.jwt_authn.dummy_provider.denied: 3
+
+--Inspect headers
+--To confirm the JWT is forwarded to your backend
+curl -s -H "Authorization: Bearer <TOKEN>" http://<NODE_IP>:31000/httpbin/headers | jq .
+
+Shows Authorization header
+
+-------------
+#Config with JWT + RBAC
+jwt_authn filter validates the JWT.
+If valid, the claims are added to request metadata (jwt_payload).
+
+rbac filter then checks:
+/httpbin → any authenticated user passes.
+/nginx → only JWTs with "role": "admin" claim are allowed.
+
+--Generate a normal user token
+jwt encode --secret "testsecret" '{"sub":"123","name":"Alice","role":"user"}'
+
+--Generate a admin token
+jwt encode --secret "testsecret" '{"sub":"456","name":"Bob","role":"admin"}'
+
+--Access Nginx as user
+url -v -H "Authorization: Bearer <USER_TOKEN>" http://<NODE_IP>:31000/nginx/
+<denied>
+
+--Access Nginx as admin
+curl -v -H "Authorization: Bearer <ADMIN_TOKEN>" http://<NODE_IP>:31000/nginx/
+
+--Access httpbin as any user
+curl -v -H "Authorization: Bearer <USER_TOKEN>" http://<NODE_IP>:31000/httpbin/get
+
+#Metrics that can be collected
+Envoy’s RBAC filter provides these stats (per stat_prefix, here ingress_http):
+
+http.ingress_http.rbac.allowed → number of requests allowed by RBAC
+http.ingress_http.rbac.denied → number of requests denied by RBAC
+
+JWT stats remain available too:
+
+http.ingress_http.jwt_authn.dummy_provider.allowed
+http.ingress_http.jwt_authn.dummy_provider.denied
+
+--Try user token (must deny access)
+curl -v -H "Authorization: Bearer <USER_TOKEN>" http://<NODE_IP>:31000/nginx/
+
+--Try admin token
+curl -v -H "Authorization: Bearer <ADMIN_TOKEN>" http://<NODE_IP>:31000/nginx/
+
+--Check metrics
+curl http://<NODE_IP>:31901/stats | grep rbac
+curl http://<NODE_IP>:31901/stats | grep jwt
+
+Thus, we can test
+JWT-level failures (bad/missing tokens) vs RBAC-level failures (token valid, but not enough privileges).
