@@ -42,6 +42,7 @@ kind: Service
 metadata:
   name: ratelimit
 spec:
+<<<<<<< HEAD
   selector:
     app: ratelimit
   ports:
@@ -51,3 +52,23 @@ spec:
   - name: http
     port: 8080
     targetPort: 8080
+=======
+  ports:
+  - port: 10000
+    targetPort: 10000
+    nodePort: 30081
+---
+# ratelimit service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ratelimit
+spec:
+  selector:
+    app: ratelimit
+  ports:
+  - port: 8081
+    name: grpc
+    targetPort: 8081
+
+>>>>>>> 9a5f3436c15a9d647dad98bb371e8d46f1ac0503
