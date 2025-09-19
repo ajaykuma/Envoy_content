@@ -180,9 +180,12 @@ controlplane:~$ kubectl get svc example-app
 NAME          TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)     AGE
 example-app   ClusterIP   10.108.83.198   <none>        10000/TCP   47m
 
-controlplane:~$ for i in $(seq 1 20); do
-    curl -s http://10.108.83.198:10000/podb
-done
+controlplane:~$ for i in $(seq 1 20); do curl -s http://10.108.83.198:10000/podb;done
+
+or
+Port forwarding..
+kubectl port-forward svc/example-app 10005:10003 -n aj-ns
+for i in $(seq 1 20); do curl -s http://localhost:10005/podb; done
 
 #Test failure scenarios
 Stop Pod B and see how Pod A handles upstream failure:

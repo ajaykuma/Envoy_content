@@ -17,6 +17,13 @@ data:
                   typed_config:
                     "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
                     stat_prefix: ingress_http
+                    access_log:
+                      - name: envoy.access_loggers.stdout
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                          log_format:
+                            text_format: |
+                              [%START_TIME%] "%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%" %RESPONSE_CODE% %RESPONSE_FLAGS% %BYTES_RECEIVED% %BYTES_SENT% %DURATION% %RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)% "%REQ(X-FORWARDED-FOR)%" "%REQ(USER-AGENT)%" "%REQ(X-REQUEST-ID)%" "%REQ(:AUTHORITY)%" "%UPSTREAM_HOST%" jwt_role="%REQ(x-jwt-role)%" rate_limited="%RESP(x-envoy-ratelimited)%"
                     route_config:
                       name: local_route
                       virtual_hosts:
@@ -28,19 +35,25 @@ data:
                               route:
                                 cluster: httpbin_service
                                 prefix_rewrite: "/"
-                                rate_limits:
-                                  - actions:
+                              rate_limits:
+                                - actions:
                                     - generic_key:
                                         descriptor_value: "httpbin_route"
-                            - match: 
+                                    - request_headers:
+                                        header_name: "x-jwt-role"
+                                        descriptor_key: "role"
+                            - match:
                                 prefix: "/nginx"
                               route:
                                 cluster: nginx_service
                                 prefix_rewrite: "/"
-                                rate_limits:
-                                  - actions:
-                                    - generic_key:  
+                              rate_limits:
+                                - actions:
+                                    - generic_key:
                                         descriptor_value: "nginx_route"
+                                    - request_headers:
+                                        header_name: "x-jwt-role"
+                                        descriptor_key: "role"
 
                     http_filters:
                       # JWT Authentication
@@ -62,50 +75,41 @@ data:
                                     ]
                                   }
                               forward: true
+                              forward_payload_header: "x-jwt-role"
+                              payload_in_metadata: "jwt_payload"
                           rules:
                             - match: { prefix: "/" }
                               requires:
                                 provider_name: dummy_provider
 
-                      # Global Rate Limit filter (no descriptors here!)
+                      # Global Rate Limit filter (MUST be before router)
                       - name: envoy.filters.http.ratelimit
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.ratelimit.v3.RateLimit
                           domain: test_domain
-                          timeout: 0.25s
+                          timeout: 1s
                           failure_mode_deny: false
+                          enable_x_ratelimit_headers: DRAFT_VERSION_03
                           rate_limit_service:
                             grpc_service:
                               envoy_grpc:
                                 cluster_name: ratelimit_global
-                          enable_x_ratelimit_headers: DRAFT_VERSION_03
+                            transport_api_version: V3
 
-                      # RBAC Filter
+                      # RBAC Filter (simplified for testing)
                       - name: envoy.filters.http.rbac
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.rbac.v3.RBAC
                           rules:
                             action: ALLOW
                             policies:
-                               allow-httpbin:
-                                 permissions:
-                                   - any: true
-                                 principals:
-                                   - any: true
-                               allow-nginx-admin:
-                                 permissions:
-                                   - any: true
-                                 principals:
-                                   - metadata:
-                                       filter: envoy.filters.http.jwt_authn
-                                       path:
-                                         - key: jwt_payload
-                                         - key: role
-                                       value:
-                                         string_match:
-                                           exact: "admin"
+                              allow-all:
+                                permissions:
+                                  - any: true
+                                principals:
+                                  - any: true
 
-                      # Router
+                      # Router (MUST be last)
                       - name: envoy.filters.http.router
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -141,6 +145,11 @@ data:
           type: STRICT_DNS
           connect_timeout: 0.25s
           lb_policy: ROUND_ROBIN
+          typed_extension_protocol_options:
+            envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+              "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+              explicit_http_config:
+                http2_protocol_options: {}
           load_assignment:
             cluster_name: ratelimit_global
             endpoints:

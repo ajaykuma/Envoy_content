@@ -1,4 +1,3 @@
-#JWT + RBAC 
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -33,6 +32,7 @@ data:
                                 cluster: nginx_service
                                 prefix_rewrite: "/"
                     http_filters:
+                      # JWT authentication
                       - name: envoy.filters.http.jwt_authn
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
@@ -55,6 +55,7 @@ data:
                             - match: { prefix: "/" }
                               requires:
                                 provider_name: dummy_provider
+                      # RBAC filter
                       - name: envoy.filters.http.rbac
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.rbac.v3.RBAC
@@ -64,15 +65,17 @@ data:
                               "allow-httpbin":
                                 permissions:
                                   - url_path:
-                                      path: "/httpbin"
-                                      ignore_case: true
+                                      path: 
+                                        #exact: "/httpbin"
+                                        prefix: "/httpbin"
                                 principals:
                                   - any: true
                               "allow-nginx-admin":
                                 permissions:
                                   - url_path:
-                                      path: "/nginx"
-                                      ignore_case: true
+                                      path: 
+                                        #exact: "/nginx"
+                                        prefix: "/nginx"
                                 principals:
                                   - metadata:
                                       filter: envoy.filters.http.jwt_authn
@@ -85,6 +88,7 @@ data:
                       - name: envoy.filters.http.router
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
       clusters:
         - name: httpbin_service
           type: STRICT_DNS
@@ -96,7 +100,7 @@ data:
                   - endpoint:
                       address:
                         socket_address:
-                          address: httpbin
+                          address: httpbin.org
                           port_value: 80
 
         - name: nginx_service

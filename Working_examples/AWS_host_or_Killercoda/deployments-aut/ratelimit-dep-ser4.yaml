@@ -1,0 +1,202 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ratelimit-config-global
+data:
+  config.yaml: |
+    domain: test_domain
+    descriptors:
+      # HTTPBin route rate limiting: 2 requests per second
+      - key: generic_key
+        value: httpbin_route
+        descriptors:
+          - key: role
+            value: admin
+            rate_limit:
+              unit: second
+              requests_per_unit: 2
+        rate_limit:
+          unit: second
+          requests_per_unit: 5  # Default rate if no role match
+      
+      # Nginx route rate limiting: 5 requests per minute  
+      - key: generic_key
+        value: nginx_route
+        descriptors:
+          - key: role
+            value: admin
+            rate_limit:
+              unit: minute
+              requests_per_unit: 5
+        rate_limit:
+          unit: minute
+          requests_per_unit: 10  # Default rate if no role match
+
+---
+# Redis deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-global
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-global
+  template:
+    metadata:
+      labels:
+        app: redis-global
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        args: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-global
+spec:
+  selector:
+    app: redis-global
+  ports:
+  - port: 6379
+    targetPort: 6379
+
+---
+# Rate limit service deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ratelimit-global
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ratelimit-global
+  template:
+    metadata:
+      labels:
+        app: ratelimit-global
+    spec:
+      containers:
+      - name: ratelimit
+        image: envoyproxy/ratelimit:master
+        ports:
+        - containerPort: 8080
+        - containerPort: 8081
+        env:
+        - name: USE_STATSD
+          value: "false"
+        - name: LOG_LEVEL
+          value: "debug"
+        - name: REDIS_SOCKET_TYPE
+          value: "tcp"
+        - name: REDIS_URL
+          value: "redis-global:6379"
+        - name: RUNTIME_ROOT
+          value: "/data"
+        - name: RUNTIME_SUBDIRECTORY
+          value: "ratelimit"
+        volumeMounts:
+        - name: config-volume
+          mountPath: /data/ratelimit/config/config.yaml
+          subPath: config.yaml
+          readOnly: true
+        startupProbe:
+          httpGet:
+            path: /healthcheck
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 12
+        readinessProbe:
+          httpGet:
+            path: /healthcheck
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthcheck
+            port: 8080
+          initialDelaySeconds: 20
+          periodSeconds: 30
+        command: ["/bin/ratelimit"]
+      volumes:
+      - name: config-volume
+        configMap:
+          name: ratelimit-config-global
+          items:
+          - key: config.yaml
+            path: config.yaml
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ratelimit-global
+spec:
+  selector:
+    app: ratelimit-global
+  ports:
+  - name: grpc
+    port: 8081
+    targetPort: 8081
+  - name: http
+    port: 8080
+    targetPort: 8080
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: envoy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: envoy
+  template:
+    metadata:
+      labels:
+        app: envoy
+    spec:
+      containers:
+        - name: envoy
+          image: envoyproxy/envoy:v1.33-latest
+          args: ["-c", "/etc/envoy/envoy.yaml"]
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /etc/envoy
+              readOnly: true
+          ports:
+            - containerPort: 10000
+            - containerPort: 9901
+      volumes:
+        - name: envoy-config
+          configMap:
+            name: envoy-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: envoy
+spec:
+  type: NodePort
+  ports:
+    - port: 10000
+      targetPort: 10000
+      nodePort: 31000
+      name: http
+    - port: 9901
+      targetPort: 9901
+      nodePort: 31901
+      name: admin
+  selector:
+    app: envoy

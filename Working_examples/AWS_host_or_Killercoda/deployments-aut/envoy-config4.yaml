@@ -30,17 +30,23 @@ data:
                                 prefix_rewrite: "/"
                                 rate_limits:
                                   - actions:
-                                    - generic_key:
-                                        descriptor_value: "httpbin_route"
-                            - match: 
+                                      - generic_key:
+                                          descriptor_value: "httpbin_route"
+                                      - request_headers:
+                                          header_name: "x-jwt-role"
+                                          descriptor_key: "role"
+                            - match:
                                 prefix: "/nginx"
                               route:
                                 cluster: nginx_service
                                 prefix_rewrite: "/"
                                 rate_limits:
                                   - actions:
-                                    - generic_key:  
-                                        descriptor_value: "nginx_route"
+                                      - generic_key:
+                                          descriptor_value: "nginx_route"
+                                      - request_headers:
+                                          header_name: "x-jwt-role"
+                                          descriptor_key: "role"
 
                     http_filters:
                       # JWT Authentication
@@ -62,12 +68,13 @@ data:
                                     ]
                                   }
                               forward: true
+                              forward_payload_header: "x-jwt-role"
                           rules:
                             - match: { prefix: "/" }
                               requires:
                                 provider_name: dummy_provider
 
-                      # Global Rate Limit filter (no descriptors here!)
+                      # Global Rate Limit filter
                       - name: envoy.filters.http.ratelimit
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.ratelimit.v3.RateLimit
@@ -87,23 +94,11 @@ data:
                           rules:
                             action: ALLOW
                             policies:
-                               allow-httpbin:
-                                 permissions:
-                                   - any: true
-                                 principals:
-                                   - any: true
-                               allow-nginx-admin:
-                                 permissions:
-                                   - any: true
-                                 principals:
-                                   - metadata:
-                                       filter: envoy.filters.http.jwt_authn
-                                       path:
-                                         - key: jwt_payload
-                                         - key: role
-                                       value:
-                                         string_match:
-                                           exact: "admin"
+                              allow-all:
+                                permissions:
+                                  - any: true
+                                principals:
+                                  - any: true
 
                       # Router
                       - name: envoy.filters.http.router
@@ -141,6 +136,7 @@ data:
           type: STRICT_DNS
           connect_timeout: 0.25s
           lb_policy: ROUND_ROBIN
+          http2_protocol_options: {}
           load_assignment:
             cluster_name: ratelimit_global
             endpoints:

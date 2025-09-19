@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: envoy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: envoy
+  template:
+    metadata:
+      labels:
+        app: envoy
+    spec:
+      containers:
+        - name: envoy
+          image: envoyproxy/envoy:v1.33-latest
+          args: ["-c", "/etc/envoy/envoy.yaml"]
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /etc/envoy
+              readOnly: true
+          ports:
+            - containerPort: 10000
+            - containerPort: 9901
+      volumes:
+        - name: envoy-config
+          configMap:
+            name: envoy-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: envoy
+spec:
+  type: NodePort
+  ports:
+    - port: 10000
+      targetPort: 10000
+      nodePort: 31000
+      name: http
+    - port: 9901
+      targetPort: 9901
+      nodePort: 31901
+      name: admin
+  selector:
+    app: envoy

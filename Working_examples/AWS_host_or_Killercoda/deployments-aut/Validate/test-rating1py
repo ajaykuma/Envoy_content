@@ -1,0 +1,41 @@
+#Python
+import requests
+import datetime
+import jwt
+import time
+
+ENVOY_URL = "http://192.168.49.2:31000"
+ROUTES = ["/httpbin/get", "/nginx"]
+JWT_SECRET = "testsecret"
+JWT_ISSUER = "test-issuer"
+ROLE = "admin"
+NUM_REQUESTS = 10
+DELAY_BETWEEN_REQUESTS = 0.2
+
+# --------------------------
+# Generate JWT
+# --------------------------
+payload = {
+    "sub": "123",
+    "role": ROLE,
+    "iss": JWT_ISSUER,
+    "iat": datetime.datetime.utcnow(),
+    "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+}
+
+token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+headers = {
+    "Authorization": f"Bearer {token}"
+}
+
+# --------------------------
+# Test routes
+# --------------------------
+for route in ROUTES:
+    print(f"Testing {NUM_REQUESTS} requests to {route} ...\n")
+    for i in range(1, NUM_REQUESTS + 1):
+        resp = requests.get(f"{ENVOY_URL}{route}", headers=headers)
+        print(f"Request {i}: HTTP {resp.status_code}, x-envoy-ratelimited: {resp.headers.get('x-envoy-ratelimited')}")
+    print("\n------------------------------\n")
+    time.sleep(1)

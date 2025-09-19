@@ -43,9 +43,7 @@ payload = {
 print(jwt.encode(payload, secret, algorithm="HS256"))
 EOF
 
-
-eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMiLCJyb2xlIjoiYWRtaW4iLCJpc3MiOiJ0ZXN0LWlzc3VlciIsImlhdCI6MTc1ODI2NzA5OCwiZXhwIjoxNzU4MjcwNjk4fQ.dCQjLzd_zNItSru9pASP_LCkpAFJ_rmgic_9MWcJ3ZA
-
+Token: xxxx
 -----------
 kubectl get nodes -o wide
 
@@ -61,50 +59,22 @@ kubectl get nodes -o wide
 * Mark bundle as not supporting multiuse
 < HTTP/1.1 401 Unauthorized
 < www-authenticate: Bearer realm="http://192.168.49.2:31000/httpbin/get"
-< content-length: 14
-< content-type: text/plain
-< date: Fri, 19 Sep 2025 07:22:33 GMT
-< server: envoy
-<
-* Connection #0 to host 192.168.49.2 left intact
+
 --------
 #Send a request with JWT token
-
+--httpbin
 #with token
-curl -v -H "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMiLCJyb2xlIjoiYWRtaW4iLCJpc3MiOiJ0ZXN0LWlzc3VlciIsImlhdCI6MTc1ODI2NzA5OCwiZXhwIjoxNzU4MjcwNjk4fQ.dCQjLzd_zNItSru9pASP_LCkpAFJ_rmgic_9MWcJ3ZA" http://192.168.49.2:31000/httpbin/get
+curl -v -H "Authorization: Bearer eyJ0eXAiOiJKV1QiL.....ZA" http://192.168.49.2:31000/httpbin/get
 *   Trying 192.168.49.2:31000...
 * Connected to 192.168.49.2 (192.168.49.2) port 31000 (#0)
 > GET /httpbin/get HTTP/1.1
 > Host: 192.168.49.2:31000
 > User-Agent: curl/7.81.0
 > Accept: */*
-> Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMiLCJyb2xlIjoiYWRtaW4iLCJpc3MiOiJ0ZXN0LWlzc3VlciIsImlhdCI6MTc1ODI2NzA5OCwiZXhwIjoxNzU4MjcwNjk4fQ.dCQjLzd_zNItSru9pASP_LCkpAFJ_rmgic_9MWcJ3ZA
+> Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOi...ZA
 >
 * Mark bundle as not supporting multiuse
 < HTTP/1.1 200 OK
-< date: Fri, 19 Sep 2025 07:33:35 GMT
-< content-type: application/json
-< content-length: 574
-< server: envoy
-< access-control-allow-origin: *
-< access-control-allow-credentials: true
-< x-envoy-upstream-service-time: 225
-<
-{
-  "args": {},
-  "headers": {
-    "Accept": "*/*",
-    "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMiLCJyb2xlIjoiYWRtaW4iLCJpc3MiOiJ0ZXN0LWlzc3VlciIsImlhdCI6MTc1ODI2NzA5OCwiZXhwIjoxNzU4MjcwNjk4fQ.dCQjLzd_zNItSru9pASP_LCkpAFJ_rmgic_9MWcJ3ZA",
-    "Host": "192.168.49.2",
-    "User-Agent": "curl/7.81.0",
-    "X-Amzn-Trace-Id": "Root=1-68cd074f-10d2b6383f1a33047680b618",
-    "X-Envoy-Expected-Rq-Timeout-Ms": "15000",
-    "X-Envoy-Original-Path": "/httpbin/get"
-  },
-  "origin": "18.192.45.205",
-  "url": "http://192.168.49.2/get"
-}
-* Connection #0 to host 192.168.49.2 left intact
 ----------
 
 Without token → Envoy rejects (401).
@@ -115,50 +85,18 @@ curl -v http://<NODE_IP>:31000/nginx/
 --should fail and show 401 authorized
 curl -v -H "Authorization: Bearer <TOKEN>" http://<NODE_IP>:31000/nginx/
 
-ubuntu@ip-172-31-46-4:~$ curl -v -H "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMiLCJyb2xlIjoiYWRtaW4iLCJpc3MiOiJ0ZXN0LWlzc3VlciIsImlhdCI6MTc1ODI2NzA5OCwiZXhwIjoxNzU4MjcwNjk4fQ.dCQjLzd_zNItSru9pASP_LCkpAFJ_rmgic_9MWcJ3ZA" http://192.168.49.2:31000/nginx
+ubuntu@ip-172-31-46-4:~$ curl -v -H "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOi..3ZA" http://192.168.49.2:31000/nginx
 *   Trying 192.168.49.2:31000...
 * Connected to 192.168.49.2 (192.168.49.2) port 31000 (#0)
 > GET /nginx HTTP/1.1
 > Host: 192.168.49.2:31000
 > User-Agent: curl/7.81.0
 > Accept: */*
-> Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMiLCJyb2xlIjoiYWRtaW4iLCJpc3MiOiJ0ZXN0LWlzc3VlciIsImlhdCI6MTc1ODI2NzA5OCwiZXhwIjoxNzU4MjcwNjk4fQ.dCQjLzd_zNItSru9pASP_LCkpAFJ_rmgic_9MWcJ3ZA
+> Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhb..J3ZA
 >
 * Mark bundle as not supporting multiuse
 < HTTP/1.1 200 OK
 < server: envoy
-< date: Fri, 19 Sep 2025 07:35:29 GMT
-< content-type: text/html
-< content-length: 615
-< last-modified: Wed, 13 Aug 2025 14:33:41 GMT
-< etag: "689ca245-267"
-< accept-ranges: bytes
-< x-envoy-upstream-service-time: 0
-<
-<!DOCTYPE html>
-<html>
-<head>
-<title>Welcome to nginx!</title>
-<style>
-html { color-scheme: light dark; }
-body { width: 35em; margin: 0 auto;
-font-family: Tahoma, Verdana, Arial, sans-serif; }
-</style>
-</head>
-<body>
-<h1>Welcome to nginx!</h1>
-<p>If you see this page, the nginx web server is successfully installed and
-working. Further configuration is required.</p>
-
-<p>For online documentation and support please refer to
-<a href="http://nginx.org/">nginx.org</a>.<br/>
-Commercial support is available at
-<a href="http://nginx.com/">nginx.com</a>.</p>
-
-<p><em>Thank you for using nginx.</em></p>
-</body>
-</html>
-* Connection #0 to host 192.168.49.2 left intact
 ----------------------------
 
 --check metrics
@@ -173,7 +111,8 @@ ubuntu@ip-172-31-46-4:~$ curl -v http://192.168.49.2:31901/stats | grep jwt
 *   Trying 192.168.49.2:31901...
   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
                                  Dload  Upload   Total   Spent    Left  Speed
-  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0* Connected to 192.168.49.2 (192.168.49.2) port 31901 (#0)
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0* 
+  Connected to 192.168.49.2 (192.168.49.2) port 31901 (#0)
 > GET /stats HTTP/1.1
 > Host: 192.168.49.2:31901
 > User-Agent: curl/7.81.0
@@ -183,21 +122,15 @@ ubuntu@ip-172-31-46-4:~$ curl -v http://192.168.49.2:31901/stats | grep jwt
 < HTTP/1.1 200 OK
 < content-type: text/plain; charset=UTF-8
 < cache-control: no-cache, max-age=0
-< x-content-type-options: nosniff
-< date: Fri, 19 Sep 2025 07:36:31 GMT
-< server: envoy
-< transfer-encoding: chunked
-<
-{ [7031 bytes data]
-100 27416    0 27416    0     0  12.2M      0 --:--:-- --:--:-- --:--:http.ingress_http.jwt_authn.allowed: 2
--- http.ingress_http.jwt_authn.cors_preflight_bypassed: 0
+...
+http.ingress_http.jwt_authn.cors_preflight_bypassed: 0
 26http.ingress_http.jwt_authn.denied: 5
 .1http.ingress_http.jwt_authn.jwks_fetch_failed: 0
 Mhttp.ingress_http.jwt_authn.jwks_fetch_success: 0
 
 http.ingress_http.jwt_authn.jwt_cache_hit: 0
 *http.ingress_http.jwt_authn.jwt_cache_miss: 6
- Connection #0 to host 192.168.49.2 left intact
+
 --------------sample output ends-----------
 
 --Inspect headers
@@ -207,34 +140,25 @@ curl -s -H "Authorization: Bearer <TOKEN>" http://<NODE_IP>:31000/httpbin/header
 
 Shows Authorization header
 ---------------sample output------------
-ubuntu@ip-172-31-46-4:~$ curl -v -H "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMiLCJyb2xlIjoiYWRtaW4iLCJpc3MiOiJ0ZXN0LWlzc3VlciIsImlhdCI6MTc1ODI2NzA5OCwiZXhwIjoxNzU4MjcwNjk4fQ.dCQjLzd_zNItSru9pASP_LCkpAFJ_rmgic_9MWcJ3ZA" http://192.168.49.2:31000/httpbin/headers | jq .
+ubuntu@ip-172-31-46-4:~$ curl -v -H "Authorization: Bearer eyJ0eXAiOiJ..9MWcJ3ZA" http://192.168.49.2:31000/httpbin/headers | jq .
 *   Trying 192.168.49.2:31000...
   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
                                  Dload  Upload   Total   Spent    Left  Speed
-  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0* Connected to 192.168.49.2 (192.168.49.2) port 31000 (#0)
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0* 
+  Connected to 192.168.49.2 (192.168.49.2) port 31000 (#0)
 > GET /httpbin/headers HTTP/1.1
 > Host: 192.168.49.2:31000
 > User-Agent: curl/7.81.0
 > Accept: */*
-> Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMiLCJyb2xlIjoiYWRtaW4iLCJpc3MiOiJ0ZXN0LWlzc3VlciIsImlhdCI6MTc1ODI2NzA5OCwiZXhwIjoxNzU4MjcwNjk4fQ.dCQjLzd_zNItSru9pASP_LCkpAFJ_rmgic_9MWcJ3ZA
+> Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciO..c_9MWcJ3ZA
 >
 * Mark bundle as not supporting multiuse
 < HTTP/1.1 200 OK
-< date: Fri, 19 Sep 2025 07:38:24 GMT
-< content-type: application/json
-< content-length: 496
-< server: envoy
-< access-control-allow-origin: *
-< access-control-allow-credentials: true
-< x-envoy-upstream-service-time: 215
-<
-{ [496 bytes data]
-100   496  100   496    0     0   2276      0 --:--:-- --:--:-- --:--:--  2285
-* Connection #0 to host 192.168.49.2 left intact
+...
 {
   "headers": {
     "Accept": "*/*",
-    "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMiLCJyb2xlIjoiYWRtaW4iLCJpc3MiOiJ0ZXN0LWlzc3VlciIsImlhdCI6MTc1ODI2NzA5OCwiZXhwIjoxNzU4MjcwNjk4fQ.dCQjLzd_zNItSru9pASP_LCkpAFJ_rmgic_9MWcJ3ZA",
+    "Authorization": "Bearer eyJ0eXAiOiJKV1Q...kpAFJ_rmgic_9MWcJ3ZA",
     "Host": "192.168.49.2",
     "User-Agent": "curl/7.81.0",
     "X-Amzn-Trace-Id": "Root=1-68cd0870-7c004c111a719c4646873a87",
@@ -254,14 +178,31 @@ rbac filter then checks:
 /httpbin → any authenticated user passes.
 /nginx → only JWTs with "role": "admin" claim are allowed.
 
---Generate a normal user token
-jwt encode --secret "testsecret" '{"sub":"123","name":"Alice","role":"user"}'
+#Token Generation
+python3 - <<'EOF'
+import jwt, datetime
+secret = "testsecret"
+payload = {
+    "sub": "123",
+    "role": "admin",
+    "iss": "test-issuer",
+    "iat": datetime.datetime.utcnow(),
+    "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+}
+print(jwt.encode(payload, secret, algorithm="HS256"))
+EOF
 
---Generate a admin token
-jwt encode --secret "testsecret" '{"sub":"456","name":"Bob","role":"admin"}'
+---to decode jwt token------
+python3 - <<'EOF'
+import jwt
+token = "eyJ0eXAiOiJKV1QiLCJhbG...bItkYbCrCBuzE"
+print(jwt.decode(token, "testsecret", algorithms=["HS256"]))
+EOF
 
+---------------------------
+Similarly we can create token for a different user and test
 --Access Nginx as user
-url -v -H "Authorization: Bearer <USER_TOKEN>" http://<NODE_IP>:31000/nginx/
+curl -v -H "Authorization: Bearer <USER_TOKEN>" http://<NODE_IP>:31000/nginx/
 <denied>
 
 --Access Nginx as admin
@@ -270,6 +211,7 @@ curl -v -H "Authorization: Bearer <ADMIN_TOKEN>" http://<NODE_IP>:31000/nginx/
 --Access httpbin as any user
 curl -v -H "Authorization: Bearer <USER_TOKEN>" http://<NODE_IP>:31000/httpbin/get
 
+-------------------------------
 #Metrics that can be collected
 Envoy’s RBAC filter provides these stats (per stat_prefix, here ingress_http):
 
@@ -281,15 +223,67 @@ JWT stats remain available too:
 http.ingress_http.jwt_authn.dummy_provider.allowed
 http.ingress_http.jwt_authn.dummy_provider.denied
 
---Try user token (must deny access)
-curl -v -H "Authorization: Bearer <USER_TOKEN>" http://<NODE_IP>:31000/nginx/
-
---Try admin token
-curl -v -H "Authorization: Bearer <ADMIN_TOKEN>" http://<NODE_IP>:31000/nginx/
-
 --Check metrics
 curl http://<NODE_IP>:31901/stats | grep rbac
 curl http://<NODE_IP>:31901/stats | grep jwt
 
 Thus, we can test
 JWT-level failures (bad/missing tokens) vs RBAC-level failures (token valid, but not enough privileges).
+
+-------------
+(To verify)
+#per-JWT local rate limiting still requires using RLS, not local_ratelimit
+#local_ratelimit can Limit requests based on static descriptors only:
+
+descriptors:
+  - entries:
+      - key: "httpbin_global"
+        value: "limit"
+
+
+This will count all requests together, not per-user.
+
+----------------------------
+#Global rate limiting
+#Per-user / per-JWT rate limiting solution
+
+Use Envoy + Rate Limit Service (RLS):
+
+JWT filter → extracts claims
+RLS filter → calls external RLS service with metadata (jwt_payload.sub)
+RLS service applies per-user rate limits and returns allowed/denied
+
+Generate token:
+python3 - <<'EOF'
+import jwt, datetime
+
+secret = "testsecret"
+payload = {
+    "sub": "123",            # user ID
+    "role": "admin",         # role for RBAC
+    "iss": "test-issuer",    # issuer
+    "iat": datetime.datetime.utcnow(),
+    "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+}
+
+token = jwt.encode(payload, secret, algorithm="HS256")
+print(token)
+EOF
+
+eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMiLCJyb2xlIjoiYWRtaW4iLCJpc3MiOiJ0ZXN0LWlzc3VlciIsImlhdCI6MTc1ODI3NjQwNiwiZXhwIjoxNzU4MjgwMDA2fQ.ffvmMnuveSSYI5NHUaKZJDv4MB0ZroiwBEvWlViAx2c
+
+curl -v -H "Authorization: Bearer <YOUR_JWT>" http://<ENVOY_IP>:10000/httpbin/get
+
+curl -v -H "Authorization: Bearer <YOUR_JWT>" http://<ENVOY_IP>:10000/nginx
+
+#Observe Rate Limiting Headers
+
+Our global rate limit is enabled via ratelimit filter. Envoy adds headers like:
+x-envoy-rate-limit-remaining → requests left in the current window
+x-envoy-rate-limit-reset → time to reset (seconds)
+
+for i in {1..5}; do
+> curl -v -H "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMiLCJyb2xlIjoiYWRtaW4iLCJpc3MiOiJ0ZXN0LWlzc3VlciIsImlhdCI6MTc1ODI3NjQwNiwiZXhwIjoxNzU4MjgwMDA2fQ.ffvmMnuveSSYI5NHUaKZJDv4MB0ZroiwBEvWlViAx2c" http://192.168.49.2:31000/httpbin/get
+done
+
+

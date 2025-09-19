@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ratelimit-config-global
+data:
+  config.yaml: |
+    domain: test_domain
+    descriptors:
+      # HTTPBin route rate limiting
+      - key: generic_key
+        value: httpbin_route
+        descriptors:
+          - key: role
+            value: admin
+            rate_limit:
+              unit: second
+              requests_per_unit: 2
+        # Default rate limit for httpbin (fallback if role doesn't match)
+        rate_limit:
+          unit: second
+          requests_per_unit: 5
+      
+      # Nginx route rate limiting  
+      - key: generic_key
+        value: nginx_route
+        descriptors:
+          - key: role
+            value: admin
+            rate_limit:
+              unit: second
+              requests_per_unit: 3  # Changed to per second for easier testing
+        # Default rate limit for nginx
+        rate_limit:
+          unit: second
+          requests_per_unit: 10
