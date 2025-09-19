@@ -85,7 +85,8 @@ data:
                                         string_match:
                                           exact: "admin"
                       - name: envoy.filters.http.router
-
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
       clusters:
         - name: httpbin_service
           type: STRICT_DNS
